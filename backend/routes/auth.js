@@ -62,6 +62,7 @@ const adminIdUpload = multer({
 function createMailTransport() {
   const { SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASS, SMTP_SERVICE } = process.env;
   if (!SMTP_USER || !SMTP_PASS) return null;
+  if (SMTP_USER.includes('your-sending-account') || SMTP_PASS.includes('your-16-character')) return null;
 
   if (SMTP_SERVICE === 'gmail' || (!SMTP_HOST && SMTP_USER.includes('@gmail.com'))) {
     return nodemailer.createTransport({
@@ -83,6 +84,10 @@ function hashVerificationCode(requestId, code) {
 }
 
 async function sendAdminVerificationCode(request, mailTransport) {
+  if (!mailTransport) {
+    throw new Error('Gmail sending is not configured. Please set your Gmail address and 16-character Google App Password in backend/.env.');
+  }
+
   const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
   const codeHash = hashVerificationCode(request.id, code);
 
@@ -97,48 +102,41 @@ async function sendAdminVerificationCode(request, mailTransport) {
     [codeHash, request.id]
   );
 
-  console.log('====================================================');
-  console.log(`[ADMIN VERIFICATION OTP] 6-digit code for ${request.email}: ${code}`);
-  console.log('====================================================');
-
-  if (mailTransport) {
-    try {
-      await mailTransport.sendMail({
-        from: process.env.SMTP_FROM || process.env.SMTP_USER,
-        to: request.email,
-        subject: 'Your Barangay Poblacion Admin Verification Code',
-        text: `Hello ${request.full_name || 'Administrator'},\n\nYour 6-digit verification code is:\n\n${code}\n\nThis code will expire in 15 minutes. Enter this code on the registration page to verify your institutional email address.\n\nIf you did not request administrative access, please ignore this email.`,
-        html: `
-          <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background: #ffffff;">
-            <div style="text-align: center; margin-bottom: 20px;">
-              <h2 style="color: #0f172a; margin: 0; font-size: 20px;">Barangay Poblacion Administration</h2>
-              <p style="color: #64748b; font-size: 13px; margin: 4px 0 0;">Civic Ledger Administrative Access Verification</p>
-            </div>
-            <p style="color: #334155; font-size: 14px; line-height: 1.6;">
-              Hello <strong>${request.full_name || 'Applicant'}</strong>,
-            </p>
-            <p style="color: #334155; font-size: 14px; line-height: 1.6;">
-              Use the following 6-digit verification code to verify your Gmail address and complete your administrative enrollment request:
-            </p>
-            <div style="text-align: center; margin: 28px 0; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 18px;">
-              <span style="font-size: 32px; font-weight: 800; letter-spacing: 8px; color: #1e3a8a; font-family: monospace;">${code}</span>
-            </div>
-            <p style="color: #64748b; font-size: 12px; line-height: 1.5;">
-              ⏱️ This code expires in <strong>15 minutes</strong>. If you did not initiate this request, you can safely ignore this message.
-            </p>
-            <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
-            <p style="color: #94a3b8; font-size: 11px; text-align: center;">
-              Smart Profiling and Complaint Management System • Barangay Poblacion
-            </p>
+  try {
+    await mailTransport.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to: request.email,
+      subject: 'Your Barangay Poblacion Admin Verification Code',
+      text: `Hello ${request.full_name || 'Administrator'},\n\nYour 6-digit verification code is:\n\n${code}\n\nThis code will expire in 15 minutes. Enter this code on the registration page to verify your institutional email address.\n\nIf you did not request administrative access, please ignore this email.`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background: #ffffff;">
+          <div style="text-align: center; margin-bottom: 20px;">
+            <h2 style="color: #0f172a; margin: 0; font-size: 20px;">Barangay Poblacion Administration</h2>
+            <p style="color: #64748b; font-size: 13px; margin: 4px 0 0;">Civic Ledger Administrative Access Verification</p>
           </div>
-        `,
-      });
-    } catch (err) {
-      console.error('[SMTP ERROR] Failed to send email:', err);
-      if (process.env.NODE_ENV === 'production') {
-        throw err;
-      }
-    }
+          <p style="color: #334155; font-size: 14px; line-height: 1.6;">
+            Hello <strong>${request.full_name || 'Applicant'}</strong>,
+          </p>
+          <p style="color: #334155; font-size: 14px; line-height: 1.6;">
+            Use the following 6-digit verification code to verify your Gmail address and complete your administrative enrollment request:
+          </p>
+          <div style="text-align: center; margin: 28px 0; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 18px;">
+            <span style="font-size: 32px; font-weight: 800; letter-spacing: 8px; color: #1e3a8a; font-family: monospace;">${code}</span>
+          </div>
+          <p style="color: #64748b; font-size: 12px; line-height: 1.5;">
+            ⏱️ This code expires in <strong>15 minutes</strong>. Check your Gmail inbox or spam folder. If you did not initiate this request, you can safely ignore this message.
+          </p>
+          <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
+          <p style="color: #94a3b8; font-size: 11px; text-align: center;">
+            Smart Profiling and Complaint Management System • Barangay Poblacion
+          </p>
+        </div>
+      `,
+    });
+    console.log(`[EMAIL DISPATCHED] 6-digit verification code sent to Gmail: ${request.email}`);
+  } catch (err) {
+    console.error('[SMTP ERROR] Failed to send email via Gmail:', err.message);
+    throw new Error('Unable to send code to Gmail: ' + err.message);
   }
 
   return code;
@@ -335,7 +333,15 @@ router.post('/request-access', (req, res) => {
       }
 
       const mailTransport = createMailTransport();
-      const code = await sendAdminVerificationCode(
+      if (!mailTransport) {
+        if (req.file) fs.unlink(req.file.path, () => {});
+        return res.status(503).json({
+          message:
+            'Gmail sending is not yet configured. Please add your real Gmail address and 16-character Google App Password to backend/.env so the code can be delivered to your Gmail app.',
+        });
+      }
+
+      await sendAdminVerificationCode(
         { id: requestId, email: normalizedEmail, full_name: finalFullName },
         mailTransport
       );
@@ -344,8 +350,7 @@ router.post('/request-access', (req, res) => {
         verificationRequired: true,
         requestId,
         email: normalizedEmail,
-        message: `A 6-digit verification code has been sent to ${normalizedEmail}.`,
-        devCode: mailTransport ? undefined : code,
+        message: `A 6-digit verification code has been dispatched to your Gmail (${normalizedEmail}). Please open your Gmail app to view your code.`,
       });
     } catch (err) {
       console.error('Request access error:', err);
@@ -470,11 +475,17 @@ router.post('/resend-code', async (req, res) => {
     }
 
     const mailTransport = createMailTransport();
-    const code = await sendAdminVerificationCode(request, mailTransport);
+    if (!mailTransport) {
+      return res.status(503).json({
+        message:
+          'Gmail sending is not yet configured. Please add your real Gmail address and 16-character Google App Password to backend/.env so the code can be delivered to your Gmail app.',
+      });
+    }
+
+    await sendAdminVerificationCode(request, mailTransport);
 
     return res.json({
-      message: `A new 6-digit verification code has been sent to ${request.email}.`,
-      devCode: mailTransport ? undefined : code,
+      message: `A new 6-digit verification code has been dispatched to your Gmail (${request.email}). Please check your Gmail app.`,
     });
   } catch (err) {
     console.error('Resend code error:', err);

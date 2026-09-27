@@ -556,13 +556,6 @@ export default function RequestAccess() {
                 </p>
               </div>
 
-              {devCode && (
-                <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-lg p-3">
-                  <span className="font-bold">Development mode notice:</span> SMTP email is not configured in{' '}
-                  <code>.env</code>. Your 6-digit code is: <strong className="text-base tracking-widest text-amber-900 font-mono ml-1">{devCode}</strong>
-                </div>
-              )}
-
               {otpError && (
                 <div className="bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg p-3">
                   {otpError}
