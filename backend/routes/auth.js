@@ -2,7 +2,9 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const multer = require('multer');
+const nodemailer = require('nodemailer');
 const { v4: uuidv4 } = require('uuid');
 const pool = require('../db/pool');
 const { hashPassword, verifyPassword } = require('../utils/password');
@@ -33,23 +35,35 @@ const upload = multer({
   },
 });
 
+function createMailTransport() {
+  const { SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASS } = process.env;
+  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) return null;
+  return nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: Number(SMTP_PORT || 587),
+    secure: SMTP_SECURE === 'true',
+    auth: { user: SMTP_USER, pass: SMTP_PASS },
+  });
+}
+
 // POST /api/auth/login
 router.post('/login', async (req, res) => {
-  const { institutionalId, password } = req.body;
+  const { email, institutionalId, password } = req.body;
+  const loginEmail = String(email || institutionalId || '').trim();
 
-  if (!institutionalId || !password) {
-    return res.status(400).json({ message: 'Institutional ID and password are required.' });
+  if (!loginEmail || !password) {
+    return res.status(400).json({ message: 'Email and password are required.' });
   }
 
   try {
     const { rows } = await pool.query(
-      'SELECT * FROM admins WHERE institutional_id = $1',
-      [institutionalId]
+      'SELECT * FROM admins WHERE LOWER(email) = LOWER($1) OR institutional_id = $1 LIMIT 1',
+      [loginEmail]
     );
     const admin = rows[0];
 
     if (!admin || !verifyPassword(password, admin.password_hash)) {
-      return res.status(401).json({ message: 'Invalid institutional ID or password.' });
+      return res.status(401).json({ message: 'Invalid email or password.' });
     }
 
     if (admin.status !== 'approved') {
@@ -87,32 +101,129 @@ router.post('/request-access', async (req, res) => {
     return res.status(400).json({ message: 'All fields are required.' });
   }
 
+  const normalizedEmail = String(email).trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+    return res.status(400).json({ message: 'Enter a valid email address.' });
+  }
+
+  const mailTransport = createMailTransport();
+  if (!mailTransport) {
+    return res.status(503).json({ message: 'Email verification is not configured. Contact the system administrator.' });
+  }
+
   try {
     const { rows: existingRequests } = await pool.query(
-      'SELECT id FROM access_requests WHERE email = $1',
-      [email]
+      'SELECT id FROM access_requests WHERE LOWER(email) = $1',
+      [normalizedEmail]
     );
     const { rows: existingAdmins } = await pool.query(
-      'SELECT id FROM admins WHERE email = $1',
-      [email]
+      'SELECT id FROM admins WHERE LOWER(email) = $1',
+      [normalizedEmail]
     );
 
     if (existingRequests.length > 0 || existingAdmins.length > 0) {
       return res.status(409).json({ message: 'An account or request already exists for this email.' });
     }
 
+    const requestId = uuidv4();
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+    const verificationTokenHash = crypto.createHash('sha256').update(verificationToken).digest('hex');
     await pool.query(
-      `INSERT INTO access_requests (id, full_name, email, department, employee_id, password_hash, status)
-       VALUES ($1,$2,$3,$4,$5,$6,'pending')`,
-      [uuidv4(), fullName, email, department, employeeId, hashPassword(password)]
+      `INSERT INTO access_requests
+         (id, full_name, email, department, employee_id, password_hash, status,
+          email_verified, verification_token_hash, verification_expires_at)
+       VALUES ($1,$2,$3,$4,$5,$6,'pending',false,$7,now() + interval '24 hours')`,
+      [requestId, fullName.trim(), normalizedEmail, department, employeeId.trim(), hashPassword(password), verificationTokenHash]
     );
 
+    const verificationUrl = new URL('/verify-email', process.env.FRONTEND_URL || 'http://localhost:5173');
+    verificationUrl.searchParams.set('token', verificationToken);
+    try {
+      await mailTransport.sendMail({
+        from: process.env.SMTP_FROM || process.env.SMTP_USER,
+        to: normalizedEmail,
+        subject: 'Verify your Barangay Poblacion admin request',
+        text: `Hello ${fullName.trim()},\n\nVerify this email address to submit your admin access request for board review:\n${verificationUrl.toString()}\n\nThis link expires in 24 hours. If you did not request access, you can ignore this message.`,
+      });
+    } catch (mailError) {
+      await pool.query('DELETE FROM access_requests WHERE id = $1 AND email_verified = false', [requestId]);
+      throw mailError;
+    }
+
     res.status(201).json({
-      message: 'Request received. The Institutional Board typically reviews requests within 24-48 business hours.',
+      message: 'A verification link has been sent to your email. Verify your address before your access request can be reviewed.',
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: 'Database error submitting request.' });
+    res.status(500).json({ message: 'Unable to submit the request or send its verification email.' });
+  }
+});
+
+router.post('/verify-email', async (req, res) => {
+  const { token } = req.body;
+  if (!token || typeof token !== 'string') {
+    return res.status(400).json({ message: 'Verification link is invalid or expired.' });
+  }
+
+  const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+  try {
+    const { rows } = await pool.query(
+      `UPDATE access_requests
+        SET email_verified = true
+       WHERE verification_token_hash = $1 AND verification_expires_at > now()
+       RETURNING email`,
+      [tokenHash]
+    );
+    if (rows.length === 0) {
+      return res.status(400).json({ message: 'Verification link is invalid, expired, or already used.' });
+    }
+    res.json({ message: 'Email verified. Your request is ready for Institutional Board review.' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Unable to verify this email address.' });
+  }
+});
+
+router.post('/resend-verification', async (req, res) => {
+  const normalizedEmail = String(req.body.email || '').trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+    return res.status(400).json({ message: 'Enter a valid email address.' });
+  }
+  const mailTransport = createMailTransport();
+  if (!mailTransport) {
+    return res.status(503).json({ message: 'Email verification is not configured. Contact the system administrator.' });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, full_name FROM access_requests
+       WHERE LOWER(email) = $1 AND status = 'pending' AND email_verified = false`,
+      [normalizedEmail]
+    );
+    if (rows.length === 0) {
+      return res.json({ message: 'If an unverified access request matches this email, a new link has been sent.' });
+    }
+
+    const request = rows[0];
+    const token = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    await pool.query(
+      `UPDATE access_requests SET verification_token_hash = $1,
+       verification_expires_at = now() + interval '24 hours' WHERE id = $2`,
+      [tokenHash, request.id]
+    );
+    const verificationUrl = new URL('/verify-email', process.env.FRONTEND_URL || 'http://localhost:5173');
+    verificationUrl.searchParams.set('token', token);
+    await mailTransport.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to: normalizedEmail,
+      subject: 'Verify your Barangay Poblacion admin request',
+      text: `Hello ${request.full_name},\n\nUse this link to verify your email address:\n${verificationUrl.toString()}\n\nThis link expires in 24 hours. If you did not request access, you can ignore this message.`,
+    });
+    res.json({ message: 'If an unverified access request matches this email, a new link has been sent.' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Unable to send a verification email.' });
   }
 });
 
@@ -240,7 +351,7 @@ router.get('/access-requests', requireAuth, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT id, full_name, email, department, employee_id, requested_at
-       FROM access_requests WHERE status = 'pending' ORDER BY requested_at ASC`
+       FROM access_requests WHERE status = 'pending' AND email_verified = true ORDER BY requested_at ASC`
     );
     res.json(
       rows.map((r) => ({
@@ -273,6 +384,10 @@ router.post('/access-requests/:id/approve', requireAuth, async (req, res) => {
       await client.query('ROLLBACK');
       return res.status(404).json({ message: 'Request not found.' });
     }
+    if (!request.email_verified) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ message: 'The applicant must verify their email before approval.' });
+    }
 
     const { rows: idTakenRows } = await client.query(
       'SELECT id FROM admins WHERE institutional_id = $1',
@@ -294,7 +409,7 @@ router.post('/access-requests/:id/approve', requireAuth, async (req, res) => {
     await client.query('COMMIT');
 
     res.json({
-      message: `${request.full_name} has been approved and can now log in with ID ${request.employee_id}.`,
+      message: `${request.full_name} has been approved and can now log in with their email address.`,
       admin: { id: newAdminId, institutionalId: request.employee_id, fullName: request.full_name },
     });
   } catch (err) {

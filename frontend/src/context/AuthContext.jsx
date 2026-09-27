@@ -9,8 +9,8 @@ export function AuthProvider({ children }) {
     return stored ? JSON.parse(stored) : null;
   });
 
-  const login = async (institutionalId, password) => {
-    const { data } = await api.post('/auth/login', { institutionalId, password });
+  const login = async (email, password) => {
+    const { data } = await api.post('/auth/login', { email, password });
     localStorage.setItem('token', data.token);
     localStorage.setItem('admin', JSON.stringify(data.admin));
     setAdmin(data.admin);

@@ -110,9 +110,11 @@ export default function Sidebar() {
   return (
     <aside className="admin-sidebar w-64 shrink-0 bg-navy-950 text-slate-200 min-h-screen flex flex-col">
       <div className="px-5 py-6 flex items-center gap-3 border-b border-white/10">
-        <div className="h-9 w-9 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-sm shrink-0">
-          BP
-        </div>
+        <img
+          src="/barangay-seal.svg"
+          alt="Barangay Poblacion seal"
+          className="h-9 w-9 rounded-full object-contain shrink-0"
+        />
         <div className="min-w-0">
           <p className="font-semibold text-white leading-tight truncate">Barangay Poblacion</p>
           <p className="text-[11px] text-slate-400 tracking-wide">LOCAL GOVERNMENT UNIT</p>

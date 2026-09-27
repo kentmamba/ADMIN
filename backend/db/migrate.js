@@ -23,6 +23,14 @@ async function run() {
   console.log('Ensuring admins.photo_url column exists...');
   await pool.query('ALTER TABLE admins ADD COLUMN IF NOT EXISTS photo_url TEXT');
 
+  console.log('Ensuring access request email-verification columns exist...');
+  await pool.query(`
+    ALTER TABLE access_requests
+      ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT false,
+      ADD COLUMN IF NOT EXISTS verification_token_hash TEXT,
+      ADD COLUMN IF NOT EXISTS verification_expires_at TIMESTAMPTZ
+  `);
+
   // Resident-portal self-service account fields (self-registration, login, preferences)
   console.log('Ensuring resident-portal columns exist on residents...');
   await pool.query(`
@@ -36,7 +44,12 @@ async function run() {
       ADD COLUMN IF NOT EXISTS email_announcements BOOLEAN NOT NULL DEFAULT true,
       ADD COLUMN IF NOT EXISTS two_factor_enabled BOOLEAN NOT NULL DEFAULT false,
       ADD COLUMN IF NOT EXISTS language TEXT NOT NULL DEFAULT 'English (US)',
-      ADD COLUMN IF NOT EXISTS self_registered BOOLEAN NOT NULL DEFAULT false
+        ADD COLUMN IF NOT EXISTS self_registered BOOLEAN NOT NULL DEFAULT false,
+        ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT true,
+        ADD COLUMN IF NOT EXISTS email_verification_code_hash TEXT,
+        ADD COLUMN IF NOT EXISTS email_verification_expires_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS email_verification_sent_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS email_verification_attempts INT NOT NULL DEFAULT 0
   `);
 
   // Backfill: any resident row that already has a portal password was
@@ -81,7 +94,7 @@ async function run() {
 
   const { rows: adminCountRows } = await pool.query('SELECT COUNT(*) FROM admins');
   if (Number(adminCountRows[0].count) === 0) {
-    console.log('Seeding default admin account (CL-8848-00X / admin123)...');
+    console.log('Seeding default admin account (admin@civicledger.gov / admin123)...');
     await pool.query(
       `INSERT INTO admins (id, institutional_id, full_name, email, department, password_hash, status, role)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,

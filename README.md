@@ -24,7 +24,7 @@ Admin-Poblacion/
 ```bash
 cd backend
 npm install
-cp .env.example .env     # paste your Neon DATABASE_URL + a JWT_SECRET
+cp .env.example .env     # set DATABASE_URL, JWT_SECRET, and SMTP settings
 npm run migrate          # creates tables, seeds demo admin + sample data
 npm start                # http://localhost:4000
 ```
@@ -35,8 +35,22 @@ npm install
 npm run dev               # http://localhost:5173
 ```
 
-Demo admin login: **CL-8848-00X** / **admin123**
+Demo admin login: **admin@civicledger.gov** / **admin123**
 Demo resident-portal login (for the `Residents` app): **elena.santos@example.com** / **password123**
+
+### Admin email verification
+
+Admin access requests accept Gmail, Yahoo, and other valid email providers. Applicants must verify
+their address using the link emailed to them; the Institutional Board must still approve the request
+before admin sign-in is enabled. Verification links expire after 24 hours, and the verification page
+can send a replacement link.
+
+To send verification emails, configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`,
+`SMTP_PASS`, and `SMTP_FROM` in `backend/.env`. For Gmail, enable 2-Step Verification and create a
+Google App Password; use that App Password as `SMTP_PASS`, not the normal Gmail password. Set
+`FRONTEND_URL` to the admin portal's actual URL so verification links return to the right site. Never
+commit `.env` or share its SMTP password. After configuring the backend, run `npm run migrate` to
+add verification fields to existing databases.
 
 ## Pushing to GitHub (kentmamba/Admin-Poblacion)
 

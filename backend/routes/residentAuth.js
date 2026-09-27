@@ -2,7 +2,9 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const multer = require('multer');
+const nodemailer = require('nodemailer');
 const { v4: uuidv4 } = require('uuid');
 const pool = require('../db/pool');
 const { hashPassword, verifyPassword } = require('../utils/password');
@@ -37,6 +39,49 @@ function makeUpload(dir, prefix) {
 const idUpload = makeUpload(ID_DIR, 'id');
 const photoUpload = makeUpload(PHOTO_DIR, 'resident');
 
+function createMailTransport() {
+  const { SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASS } = process.env;
+  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) return null;
+  return nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: Number(SMTP_PORT || 587),
+    secure: SMTP_SECURE === 'true',
+    auth: { user: SMTP_USER, pass: SMTP_PASS },
+  });
+}
+
+function hashVerificationCode(residentId, code) {
+  return crypto.createHmac('sha256', JWT_SECRET).update(`${residentId}:${code}`).digest('hex');
+}
+
+async function sendVerificationCode(resident, mailTransport) {
+  const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+  const codeHash = hashVerificationCode(resident.id, code);
+  await pool.query(
+    `UPDATE residents SET email_verified = false, email_verification_code_hash = $1,
+       email_verification_expires_at = now() + interval '10 minutes',
+       email_verification_sent_at = now(), email_verification_attempts = 0
+     WHERE id = $2`,
+    [codeHash, resident.id]
+  );
+  try {
+    await mailTransport.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to: resident.email,
+      subject: 'Your Barangay Poblacion verification code',
+      text: `Hello ${resident.fullName},\n\nYour email verification code is ${code}. It expires in 10 minutes.\n\nIf you did not start this registration, you can ignore this message.`,
+    });
+  } catch (err) {
+    await pool.query(
+      `UPDATE residents SET email_verification_code_hash = NULL,
+       email_verification_expires_at = NULL, email_verification_sent_at = NULL
+       WHERE id = $1 AND email_verified = false`,
+      [resident.id]
+    );
+    throw err;
+  }
+}
+
 function toResidentAccount(r) {
   return {
     id: r.id,
@@ -64,6 +109,11 @@ function toResidentAccount(r) {
 
 // POST /api/resident-auth/register  (self-service "Register your Household")
 router.post('/register', (req, res) => {
+  const mailTransport = createMailTransport();
+  if (!mailTransport) {
+    return res.status(503).json({ message: 'Email verification is not configured. Contact the system administrator.' });
+  }
+
   idUpload.single('idDocument')(req, res, async (uploadErr) => {
     if (uploadErr) {
       return res.status(400).json({ message: uploadErr.message || 'Unable to upload ID document.' });
@@ -78,11 +128,31 @@ router.post('/register', (req, res) => {
         return res.status(400).json({ message: 'First name, last name, email, and password are required.' });
       }
 
+      const normalizedEmail = String(email).trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+        if (req.file) fs.unlink(req.file.path, () => {});
+        return res.status(400).json({ message: 'Enter a valid email address.' });
+      }
+
       const { rows: existing } = await pool.query(
-        'SELECT id FROM residents WHERE email = $1 AND password_hash IS NOT NULL',
-        [email]
+        'SELECT id, full_name, email, email_verified, email_verification_sent_at, self_registered FROM residents WHERE LOWER(email) = $1 AND password_hash IS NOT NULL',
+        [normalizedEmail]
       );
       if (existing.length > 0) {
+        if (req.file) fs.unlink(req.file.path, () => {});
+        const resident = existing[0];
+        if (!resident.email_verified && resident.self_registered) {
+          const lastSent = resident.email_verification_sent_at && new Date(resident.email_verification_sent_at).getTime();
+          if (lastSent && Date.now() - lastSent < 60000) {
+            return res.status(429).json({ message: 'A code was sent recently. Wait one minute before requesting another.' });
+          }
+          await sendVerificationCode({ id: resident.id, email: resident.email, fullName: resident.full_name }, mailTransport);
+          return res.status(200).json({
+            verificationRequired: true,
+            email: resident.email,
+            message: 'A new six-digit verification code has been sent to your email.',
+          });
+        }
         return res.status(409).json({ message: 'An account already exists for this email.' });
       }
 
@@ -94,8 +164,8 @@ router.post('/register', (req, res) => {
       const { rows } = await pool.query(
         `INSERT INTO residents
           (id, full_name, birth_date, age, gender, address, zone, contact, email, status,
-           category, password_hash, id_document_url, self_registered)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'Pending',$10,$11,$12,true)
+           category, password_hash, id_document_url, self_registered, email_verified)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'Pending',$10,$11,$12,true,false)
          RETURNING *`,
         [
           id, fullName, birthDate || null, age, gender || 'Unspecified', zone || '', zone || '',
@@ -103,22 +173,103 @@ router.post('/register', (req, res) => {
         ]
       );
 
-      // No token here on purpose: a self-registered account starts out
-      // 'Pending' and can't sign in until a barangay admin approves it
-      // (see the status check in POST /login below). It's flagged
-      // self_registered so it's kept OUT of the main Resident Records list
-      // (see the filter in GET /api/residents) and shown instead under
-      // Pending Requests, alongside staff access requests, until approved.
+      try {
+        await sendVerificationCode({ id, email: normalizedEmail, fullName }, mailTransport);
+      } catch (mailErr) {
+        await pool.query('DELETE FROM residents WHERE id = $1 AND email_verified = false', [id]);
+        if (req.file) fs.unlink(req.file.path, () => {});
+        throw mailErr;
+      }
+
       res.status(201).json({
-        pending: true,
-        message: 'Registration submitted. A barangay admin will review your account before you can sign in.',
-        resident: toResidentAccount(rows[0]),
+        verificationRequired: true,
+        email: normalizedEmail,
+        message: 'A six-digit verification code has been sent to your email.',
       });
     } catch (err) {
       console.error(err);
       res.status(500).json({ message: 'Database error during registration.' });
     }
   });
+});
+
+router.post('/verify-email', async (req, res) => {
+  const email = String(req.body.email || '').trim().toLowerCase();
+  const code = String(req.body.code || '').trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !/^\d{6}$/.test(code)) {
+    return res.status(400).json({ message: 'Enter the email address and six-digit code.' });
+  }
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, email_verified, email_verification_code_hash, email_verification_expires_at,
+              email_verification_attempts
+       FROM residents WHERE LOWER(email) = $1 AND self_registered = true AND password_hash IS NOT NULL`,
+      [email]
+    );
+    const resident = rows[0];
+    if (!resident) return res.status(400).json({ message: 'No pending registration was found for this email.' });
+    if (resident.email_verified) {
+      return res.json({ message: 'Email verified. Your registration is awaiting barangay approval.' });
+    }
+    if (resident.email_verification_attempts >= 5) {
+      return res.status(429).json({ message: 'Too many incorrect codes. Request a new code to continue.' });
+    }
+    if (!resident.email_verification_expires_at || new Date(resident.email_verification_expires_at) <= new Date()) {
+      return res.status(400).json({ message: 'This code has expired. Request a new code.' });
+    }
+    const suppliedHash = hashVerificationCode(resident.id, code);
+    const expectedHash = resident.email_verification_code_hash || '';
+    const matches = expectedHash.length === suppliedHash.length && crypto.timingSafeEqual(
+      Buffer.from(expectedHash, 'hex'), Buffer.from(suppliedHash, 'hex')
+    );
+    if (!matches) {
+      await pool.query(
+        'UPDATE residents SET email_verification_attempts = email_verification_attempts + 1 WHERE id = $1 AND email_verified = false',
+        [resident.id]
+      );
+      return res.status(400).json({ message: 'The verification code is incorrect.' });
+    }
+    await pool.query(
+      `UPDATE residents SET email_verified = true, email_verification_code_hash = NULL,
+       email_verification_expires_at = NULL, email_verification_attempts = 0 WHERE id = $1`,
+      [resident.id]
+    );
+    res.json({ message: 'Email verified. Your registration is awaiting barangay approval.' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Unable to verify this email address.' });
+  }
+});
+
+router.post('/resend-email-code', async (req, res) => {
+  const email = String(req.body.email || '').trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ message: 'Enter a valid email address.' });
+  }
+  const mailTransport = createMailTransport();
+  if (!mailTransport) {
+    return res.status(503).json({ message: 'Email verification is not configured. Contact the system administrator.' });
+  }
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, full_name, email, email_verified, email_verification_sent_at
+       FROM residents WHERE LOWER(email) = $1 AND self_registered = true AND password_hash IS NOT NULL`,
+      [email]
+    );
+    const resident = rows[0];
+    if (!resident || resident.email_verified) {
+      return res.json({ message: 'If an unverified registration matches this email, a new code has been sent.' });
+    }
+    const lastSent = resident.email_verification_sent_at && new Date(resident.email_verification_sent_at).getTime();
+    if (lastSent && Date.now() - lastSent < 60000) {
+      return res.status(429).json({ message: 'Wait one minute before requesting another code.' });
+    }
+    await sendVerificationCode(resident, mailTransport);
+    res.json({ message: 'A new six-digit verification code has been sent to your email.' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Unable to send a verification code.' });
+  }
 });
 
 // POST /api/resident-auth/login
@@ -138,6 +289,10 @@ router.post('/login', async (req, res) => {
 
     if (!resident || !verifyPassword(password, resident.password_hash)) {
       return res.status(401).json({ message: 'Invalid email/username or password.' });
+    }
+
+    if (!resident.email_verified) {
+      return res.status(403).json({ message: 'Verify your email using the six-digit code before signing in.' });
     }
 
     if (resident.status === 'Pending') {

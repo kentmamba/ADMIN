@@ -115,7 +115,8 @@ router.get('/', async (req, res) => {
 router.get('/pending-registrations', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT * FROM residents WHERE self_registered = true AND status = 'Pending' ORDER BY created_at ASC`
+      `SELECT * FROM residents WHERE self_registered = true AND status = 'Pending'
+       AND email_verified = true ORDER BY created_at ASC`
     );
     res.json(rows.map(toResident));
   } catch (err) {
@@ -128,10 +129,16 @@ router.get('/pending-registrations', async (req, res) => {
 router.post('/:id/approve', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `UPDATE residents SET status = 'Verified' WHERE id = $1 RETURNING *`,
+      `UPDATE residents SET status = 'Verified' WHERE id = $1 AND self_registered = true
+       AND email_verified = true RETURNING *`,
       [req.params.id]
     );
-    if (rows.length === 0) return res.status(404).json({ message: 'Resident not found.' });
+    if (rows.length === 0) {
+      const { rows: existing } = await pool.query('SELECT email_verified FROM residents WHERE id = $1', [req.params.id]);
+      if (existing.length === 0) return res.status(404).json({ message: 'Resident not found.' });
+      if (!existing[0].email_verified) return res.status(403).json({ message: 'Resident must verify their email before approval.' });
+      return res.status(409).json({ message: 'This resident is not awaiting registration approval.' });
+    }
     res.json(toResident(rows[0]));
   } catch (err) {
     console.error(err);

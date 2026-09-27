@@ -22,6 +22,9 @@ CREATE TABLE IF NOT EXISTS access_requests (
   employee_id       TEXT NOT NULL,
   password_hash     TEXT NOT NULL,
   status            TEXT NOT NULL DEFAULT 'pending',
+  email_verified    BOOLEAN NOT NULL DEFAULT false,
+  verification_token_hash TEXT,
+  verification_expires_at TIMESTAMPTZ,
   requested_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -55,6 +58,11 @@ CREATE TABLE IF NOT EXISTS residents (
   email_announcements   BOOLEAN NOT NULL DEFAULT true,
   two_factor_enabled    BOOLEAN NOT NULL DEFAULT false,
   language              TEXT NOT NULL DEFAULT 'English (US)',
+  email_verified       BOOLEAN NOT NULL DEFAULT true,
+  email_verification_code_hash TEXT,
+  email_verification_expires_at TIMESTAMPTZ,
+  email_verification_sent_at TIMESTAMPTZ,
+  email_verification_attempts INT NOT NULL DEFAULT 0,
   created_at            TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

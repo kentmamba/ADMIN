@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 
 export default function Login() {
-  const [institutionalId, setInstitutionalId] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -15,7 +15,7 @@ export default function Login() {
     setError('');
     setLoading(true);
     try {
-      await login(institutionalId, password);
+      await login(email, password);
       navigate('/');
     } catch (err) {
       setError(err.response?.data?.message || 'Unable to log in. Please try again.');
@@ -25,36 +25,36 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-100 via-slate-50 to-blue-50 flex items-center justify-center p-6">
-      <div className="w-full max-w-4xl grid md:grid-cols-2 gap-6">
-        <div className="bg-navy-900 rounded-2xl p-10 flex flex-col items-center justify-center text-center text-white shadow-xl shadow-navy-900/20">
-          <div className="h-24 w-24 rounded-full bg-white/10 border-4 border-white/20 mb-6 flex items-center justify-center text-4xl">
-            🏛️
-          </div>
+    <div className="admin-auth-scene min-h-screen flex items-center justify-center p-6">
+      <div className="admin-login-shell w-full max-w-4xl grid md:grid-cols-2 gap-6">
+        <div className="admin-login-welcome flex flex-col items-center justify-center text-center text-white">
+          <img src="/barangay-seal.svg" alt="Barangay Poblacion seal" className="mb-6 h-24 w-24 rounded-full bg-transparent object-contain p-0" />
           <h1 className="text-lg font-bold leading-snug">
             Welcome to Smart Profiling and Complaint Management System for Barangay Poblacion
           </h1>
         </div>
 
-        <div className="bg-white rounded-2xl p-10 shadow-xl shadow-slate-300/40 border border-slate-100">
+        <div className="admin-login-form">
           <div className="flex flex-col items-center mb-6">
-            <div className="h-14 w-14 rounded-xl bg-blue-700 flex items-center justify-center text-2xl text-white mb-3">
-              🏦
-            </div>
+            <img
+              src="/barangay-seal.svg"
+              alt="Barangay Poblacion seal"
+              className="mb-3 h-14 w-14 rounded-full object-contain"
+            />
             <h2 className="font-bold tracking-wide text-slate-800">INTERNAL ACCESS</h2>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="text-xs font-semibold tracking-wide text-slate-600">
-                INSTITUTIONAL ID
+                EMAIL
               </label>
               <input
-                type="text"
-                value={institutionalId}
-                onChange={(e) => setInstitutionalId(e.target.value)}
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="CL-8848-00X"
+                placeholder="admin@civicledger.gov"
                 required
               />
             </div>
@@ -88,14 +88,14 @@ export default function Login() {
 
             <p className="text-center text-xs text-slate-500 pt-2">
               New system administrator?{' '}
-              <Link to="/request-access" className="font-semibold text-slate-700 hover:underline">
+              <Link to="/request-access" className="font-semibold text-blue-600 hover:underline">
                 Request Account Access
               </Link>
             </p>
           </form>
 
           <p className="mt-6 text-center text-[11px] text-slate-400">
-            Demo credentials — ID: <span className="font-mono">CL-8848-00X</span> · Password:{' '}
+            Demo credentials — Email: <span className="font-mono">admin@civicledger.gov</span> · Password:{' '}
             <span className="font-mono">admin123</span>
           </p>
         </div>

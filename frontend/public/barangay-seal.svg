@@ -1,0 +1,46 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Barangay Poblacion seal">
+  <defs>
+    <path id="ringTextTop" d="M 64,256 A 192,192 0 0 1 448,256" />
+    <path id="ringTextBottom" d="M 64,256 A 192,192 0 0 0 448,256" />
+  </defs>
+
+  <circle cx="256" cy="256" r="236" fill="#f4efd9" stroke="#d8b45c" stroke-width="8"/>
+
+  <text font-size="34" font-weight="900" letter-spacing="4" font-family="Georgia, 'Times New Roman', serif" fill="#000000" text-anchor="middle">
+    <textPath href="#ringTextTop" startOffset="50%">BARANGAY POBLACION</textPath>
+  </text>
+  <text font-size="28" font-weight="700" letter-spacing="3" font-family="Georgia, 'Times New Roman', serif" fill="#000000" text-anchor="middle">
+    <textPath href="#ringTextBottom" startOffset="50%">CORDOVA, CEBU</textPath>
+  </text>
+
+  <path d="M100 260 C140 182, 190 142, 256 142 C322 142, 372 182, 412 260 L412 260 L100 260 Z" fill="#114d3a"/>
+  <path d="M122 260 C168 188, 212 158, 256 158 C300 158, 344 188, 390 260" fill="none" stroke="#f1bf4c" stroke-width="12" stroke-linecap="round"/>
+
+  <path d="M128 260 L384 260 L384 222 L128 222 Z" fill="#bb6f2d"/>
+  <path d="M144 230 L198 172 L256 172 L312 230" fill="#b86d28"/>
+  <path d="M170 230 L170 178 L198 178 L198 230" fill="#f8e8b2"/>
+  <path d="M236 230 L236 178 L264 178 L264 230" fill="#f8e8b2"/>
+  <path d="M302 230 L302 178 L330 178 L330 230" fill="#f8e8b2"/>
+
+  <path d="M140 260 L372 260 L372 338 C372 366, 348 390, 318 390 L194 390 C164 390, 140 366, 140 338 Z" fill="#e8dba9"/>
+  <path d="M150 260 L362 260 L362 296 L150 296 Z" fill="#c3dce8"/>
+  <path d="M170 296 L170 360 L342 360 L342 296" fill="#d7eef5"/>
+  <path d="M188 296 L188 360" stroke="#a9b8bf" stroke-width="8"/>
+  <path d="M256 296 L256 360" stroke="#a9b8bf" stroke-width="8"/>
+  <path d="M324 296 L324 360" stroke="#a9b8bf" stroke-width="8"/>
+
+  <path d="M196 310 C196 284, 214 268, 236 268 L276 268 C298 268, 316 284, 316 310 L316 360 L196 360 Z" fill="#d7d7d7"/>
+  <path d="M202 310 C202 288, 218 272, 236 272 L276 272 C294 272, 310 288, 310 310 L310 360 L202 360 Z" fill="#2d3d5c"/>
+
+  <path d="M110 382 C170 350, 210 344, 256 344 C302 344, 342 350, 402 382 L402 422 C402 436, 390 446, 375 446 H137 C122 446, 110 436, 110 422 Z" fill="#2e8a5b"/>
+  <path d="M102 392 C136 366, 190 348, 256 348 C322 348, 376 366, 410 392" fill="none" stroke="#f4d972" stroke-width="12" stroke-linecap="round"/>
+
+  <circle cx="256" cy="242" r="16" fill="#f4d972"/>
+  <path d="M256 182 L256 212" stroke="#f4d972" stroke-width="5" stroke-linecap="round"/>
+  <path d="M256 330 L256 360" stroke="#f4d972" stroke-width="5" stroke-linecap="round"/>
+  <path d="M204 242 L232 242" stroke="#f4d972" stroke-width="5" stroke-linecap="round"/>
+  <path d="M280 242 L308 242" stroke="#f4d972" stroke-width="5" stroke-linecap="round"/>
+
+  <path d="M110 390 C118 420, 136 438, 162 446 L150 454 C120 446, 94 426, 90 390 Z" fill="#4ec6d8"/>
+  <path d="M402 390 C394 420, 376 438, 350 446 L362 454 C392 446, 418 426, 422 390 Z" fill="#4ec6d8"/>
+</svg>

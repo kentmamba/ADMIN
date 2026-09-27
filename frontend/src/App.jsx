@@ -4,6 +4,7 @@ import { useAuth } from './context/AuthContext.jsx';
 
 import Login from './pages/Login.jsx';
 import RequestAccess from './pages/RequestAccess.jsx';
+import VerifyEmail from './pages/VerifyEmail.jsx';
 import ForgotPassword from './pages/ForgotPassword.jsx';
 import Layout from './components/Layout.jsx';
 import Overview from './pages/Overview.jsx';
@@ -34,6 +35,7 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/request-access" element={<RequestAccess />} />
+      <Route path="/verify-email" element={<VerifyEmail />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
 
       <Route
