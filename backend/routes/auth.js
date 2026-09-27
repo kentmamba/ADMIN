@@ -60,14 +60,88 @@ const adminIdUpload = multer({
 });
 
 function createMailTransport() {
-  const { SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASS } = process.env;
-  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) return null;
+  const { SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASS, SMTP_SERVICE } = process.env;
+  if (!SMTP_USER || !SMTP_PASS) return null;
+
+  if (SMTP_SERVICE === 'gmail' || (!SMTP_HOST && SMTP_USER.includes('@gmail.com'))) {
+    return nodemailer.createTransport({
+      service: 'gmail',
+      auth: { user: SMTP_USER, pass: SMTP_PASS },
+    });
+  }
+
   return nodemailer.createTransport({
-    host: SMTP_HOST,
+    host: SMTP_HOST || 'smtp.gmail.com',
     port: Number(SMTP_PORT || 587),
     secure: SMTP_SECURE === 'true',
     auth: { user: SMTP_USER, pass: SMTP_PASS },
   });
+}
+
+function hashVerificationCode(requestId, code) {
+  return crypto.createHmac('sha256', JWT_SECRET).update(`${requestId}:${code}`).digest('hex');
+}
+
+async function sendAdminVerificationCode(request, mailTransport) {
+  const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+  const codeHash = hashVerificationCode(request.id, code);
+
+  await pool.query(
+    `UPDATE access_requests
+     SET email_verified = false,
+         email_verification_code_hash = $1,
+         email_verification_expires_at = now() + interval '15 minutes',
+         email_verification_sent_at = now(),
+         email_verification_attempts = 0
+     WHERE id = $2`,
+    [codeHash, request.id]
+  );
+
+  console.log('====================================================');
+  console.log(`[ADMIN VERIFICATION OTP] 6-digit code for ${request.email}: ${code}`);
+  console.log('====================================================');
+
+  if (mailTransport) {
+    try {
+      await mailTransport.sendMail({
+        from: process.env.SMTP_FROM || process.env.SMTP_USER,
+        to: request.email,
+        subject: 'Your Barangay Poblacion Admin Verification Code',
+        text: `Hello ${request.full_name || 'Administrator'},\n\nYour 6-digit verification code is:\n\n${code}\n\nThis code will expire in 15 minutes. Enter this code on the registration page to verify your institutional email address.\n\nIf you did not request administrative access, please ignore this email.`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background: #ffffff;">
+            <div style="text-align: center; margin-bottom: 20px;">
+              <h2 style="color: #0f172a; margin: 0; font-size: 20px;">Barangay Poblacion Administration</h2>
+              <p style="color: #64748b; font-size: 13px; margin: 4px 0 0;">Civic Ledger Administrative Access Verification</p>
+            </div>
+            <p style="color: #334155; font-size: 14px; line-height: 1.6;">
+              Hello <strong>${request.full_name || 'Applicant'}</strong>,
+            </p>
+            <p style="color: #334155; font-size: 14px; line-height: 1.6;">
+              Use the following 6-digit verification code to verify your Gmail address and complete your administrative enrollment request:
+            </p>
+            <div style="text-align: center; margin: 28px 0; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 18px;">
+              <span style="font-size: 32px; font-weight: 800; letter-spacing: 8px; color: #1e3a8a; font-family: monospace;">${code}</span>
+            </div>
+            <p style="color: #64748b; font-size: 12px; line-height: 1.5;">
+              ⏱️ This code expires in <strong>15 minutes</strong>. If you did not initiate this request, you can safely ignore this message.
+            </p>
+            <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
+            <p style="color: #94a3b8; font-size: 11px; text-align: center;">
+              Smart Profiling and Complaint Management System • Barangay Poblacion
+            </p>
+          </div>
+        `,
+      });
+    } catch (err) {
+      console.error('[SMTP ERROR] Failed to send email:', err);
+      if (process.env.NODE_ENV === 'production') {
+        throw err;
+      }
+    }
+  }
+
+  return code;
 }
 
 // POST /api/auth/login
@@ -185,35 +259,43 @@ router.post('/request-access', (req, res) => {
 
       const idDocumentUrl = req.file ? `/uploads/admin-ids/${req.file.filename}` : null;
 
-      const { rows: existingRequests } = await pool.query(
-        'SELECT id FROM access_requests WHERE LOWER(email) = $1',
-        [normalizedEmail]
-      );
+      // Check if approved admin exists with this email or employeeId
       const { rows: existingAdmins } = await pool.query(
         'SELECT id FROM admins WHERE LOWER(email) = $1 OR institutional_id = $2',
         [normalizedEmail, empId]
       );
-
-      if (existingRequests.length > 0 || existingAdmins.length > 0) {
+      if (existingAdmins.length > 0) {
         if (req.file) fs.unlink(req.file.path, () => {});
-        return res.status(409).json({ message: 'An account or request already exists for this email or Employee ID.' });
+        return res.status(409).json({ message: 'An administrator account already exists for this email or Employee ID.' });
       }
 
-      const requestId = uuidv4();
-      const mailTransport = createMailTransport();
+      // Check existing access_requests
+      const { rows: existingRequests } = await pool.query(
+        'SELECT id, email_verified, email_verification_sent_at FROM access_requests WHERE LOWER(email) = $1 OR employee_id = $2',
+        [normalizedEmail, empId]
+      );
 
-      if (mailTransport) {
-        const verificationToken = crypto.randomBytes(32).toString('hex');
-        const verificationTokenHash = crypto.createHash('sha256').update(verificationToken).digest('hex');
+      let requestId;
+      if (existingRequests.length > 0) {
+        const existingReq = existingRequests[0];
+        if (existingReq.email_verified) {
+          if (req.file) fs.unlink(req.file.path, () => {});
+          return res.status(409).json({
+            message: 'An access request for this email/Employee ID has already been verified and is awaiting Institutional Board review.',
+          });
+        }
 
+        // Reuse unverified request: update details
+        requestId = existingReq.id;
         await pool.query(
-          `INSERT INTO access_requests
-             (id, first_name, middle_name, last_name, full_name, sex, contact_no, email, department,
-              employee_id, password_hash, id_document_url, status, email_verified,
-              verification_token_hash, verification_expires_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'pending',false,$13,now() + interval '24 hours')`,
+          `UPDATE access_requests
+           SET first_name = $1, middle_name = $2, last_name = $3, full_name = $4,
+               sex = $5, contact_no = $6, email = $7, department = $8, employee_id = $9,
+               password_hash = $10,
+               id_document_url = COALESCE($11, id_document_url),
+               requested_at = now()
+           WHERE id = $12`,
           [
-            requestId,
             fName,
             mName,
             lName,
@@ -225,36 +307,16 @@ router.post('/request-access', (req, res) => {
             empId,
             hashPassword(pwd),
             idDocumentUrl,
-            verificationTokenHash,
+            requestId,
           ]
         );
-
-        const verificationUrl = new URL('/verify-email', process.env.FRONTEND_URL || 'http://localhost:5173');
-        verificationUrl.searchParams.set('token', verificationToken);
-        try {
-          await mailTransport.sendMail({
-            from: process.env.SMTP_FROM || process.env.SMTP_USER,
-            to: normalizedEmail,
-            subject: 'Verify your Barangay Poblacion admin request',
-            text: `Hello ${finalFullName},\n\nVerify this email address to submit your admin access request for board review:\n${verificationUrl.toString()}\n\nThis link expires in 24 hours. If you did not request access, you can ignore this message.`,
-          });
-        } catch (mailError) {
-          await pool.query('DELETE FROM access_requests WHERE id = $1', [requestId]);
-          if (req.file) fs.unlink(req.file.path, () => {});
-          throw mailError;
-        }
-
-        return res.status(201).json({
-          message: 'A verification link has been sent to your email. Verify your address before your access request can be reviewed.',
-        });
       } else {
-        // Mail transport is not configured (e.g. local environment):
-        // Automatically mark as verified so request is immediately available for board review.
+        requestId = uuidv4();
         await pool.query(
           `INSERT INTO access_requests
              (id, first_name, middle_name, last_name, full_name, sex, contact_no, email, department,
               employee_id, password_hash, id_document_url, status, email_verified)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'pending',true)`,
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'pending',false)`,
           [
             requestId,
             fName,
@@ -270,11 +332,21 @@ router.post('/request-access', (req, res) => {
             idDocumentUrl,
           ]
         );
-
-        return res.status(201).json({
-          message: 'Your registration request has been submitted successfully and is pending review by the Institutional Board.',
-        });
       }
+
+      const mailTransport = createMailTransport();
+      const code = await sendAdminVerificationCode(
+        { id: requestId, email: normalizedEmail, full_name: finalFullName },
+        mailTransport
+      );
+
+      return res.status(201).json({
+        verificationRequired: true,
+        requestId,
+        email: normalizedEmail,
+        message: `A 6-digit verification code has been sent to ${normalizedEmail}.`,
+        devCode: mailTransport ? undefined : code,
+      });
     } catch (err) {
       console.error('Request access error:', err);
       if (req.file) fs.unlink(req.file.path, () => {});
@@ -283,6 +355,134 @@ router.post('/request-access', (req, res) => {
   });
 });
 
+// POST /api/auth/verify-code (verifies 6-digit OTP for admin requests)
+router.post('/verify-code', async (req, res) => {
+  const email = String(req.body.email || '').trim().toLowerCase();
+  const requestId = String(req.body.requestId || '').trim();
+  const code = String(req.body.code || '').trim();
+
+  if (!code || !/^\d{6}$/.test(code)) {
+    return res.status(400).json({ message: 'Please enter a valid 6-digit verification code.' });
+  }
+
+  if (!email && !requestId) {
+    return res.status(400).json({ message: 'Email address or request ID is required.' });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, full_name, email, email_verified, email_verification_code_hash,
+              email_verification_expires_at, email_verification_attempts
+       FROM access_requests
+       WHERE (id = $1 OR LOWER(email) = LOWER($2)) AND status = 'pending'
+       ORDER BY requested_at DESC LIMIT 1`,
+      [requestId || '', email || '']
+    );
+
+    const request = rows[0];
+    if (!request) {
+      return res.status(404).json({ message: 'No pending access request was found for this email.' });
+    }
+
+    if (request.email_verified) {
+      return res.json({
+        success: true,
+        message: 'Email verified. Your registration request is awaiting Institutional Board approval.',
+      });
+    }
+
+    if (request.email_verification_attempts >= 5) {
+      return res.status(429).json({ message: 'Too many incorrect attempts. Please request a new verification code.' });
+    }
+
+    if (!request.email_verification_expires_at || new Date(request.email_verification_expires_at) <= new Date()) {
+      return res.status(400).json({ message: 'This verification code has expired. Please request a new code.' });
+    }
+
+    const suppliedHash = hashVerificationCode(request.id, code);
+    const expectedHash = request.email_verification_code_hash || '';
+
+    const matches =
+      expectedHash.length === suppliedHash.length &&
+      crypto.timingSafeEqual(Buffer.from(expectedHash, 'hex'), Buffer.from(suppliedHash, 'hex'));
+
+    if (!matches) {
+      await pool.query(
+        'UPDATE access_requests SET email_verification_attempts = email_verification_attempts + 1 WHERE id = $1',
+        [request.id]
+      );
+      return res.status(400).json({ message: 'The verification code is incorrect. Please check and try again.' });
+    }
+
+    await pool.query(
+      `UPDATE access_requests
+       SET email_verified = true,
+           email_verification_code_hash = NULL,
+           email_verification_expires_at = NULL,
+           email_verification_attempts = 0
+       WHERE id = $1`,
+      [request.id]
+    );
+
+    return res.json({
+      success: true,
+      message: 'Email verified successfully! Your application has been submitted to the Institutional Board for review.',
+    });
+  } catch (err) {
+    console.error('Verify code error:', err);
+    return res.status(500).json({ message: 'Unable to verify code: ' + (err.message || 'Server error') });
+  }
+});
+
+// POST /api/auth/resend-code (resends 6-digit OTP with 60s cooldown)
+router.post('/resend-code', async (req, res) => {
+  const email = String(req.body.email || '').trim().toLowerCase();
+  const requestId = String(req.body.requestId || '').trim();
+
+  if (!email && !requestId) {
+    return res.status(400).json({ message: 'Email address or request ID is required.' });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, full_name, email, email_verified, email_verification_sent_at
+       FROM access_requests
+       WHERE (id = $1 OR LOWER(email) = LOWER($2)) AND status = 'pending'
+       ORDER BY requested_at DESC LIMIT 1`,
+      [requestId || '', email || '']
+    );
+
+    const request = rows[0];
+    if (!request) {
+      return res.status(404).json({ message: 'No pending access request was found.' });
+    }
+
+    if (request.email_verified) {
+      return res.json({
+        message: 'Email is already verified. Your application is awaiting Institutional Board approval.',
+      });
+    }
+
+    const lastSent = request.email_verification_sent_at && new Date(request.email_verification_sent_at).getTime();
+    if (lastSent && Date.now() - lastSent < 60000) {
+      const waitSec = Math.ceil((60000 - (Date.now() - lastSent)) / 1000);
+      return res.status(429).json({ message: `Please wait ${waitSec} seconds before requesting a new code.` });
+    }
+
+    const mailTransport = createMailTransport();
+    const code = await sendAdminVerificationCode(request, mailTransport);
+
+    return res.json({
+      message: `A new 6-digit verification code has been sent to ${request.email}.`,
+      devCode: mailTransport ? undefined : code,
+    });
+  } catch (err) {
+    console.error('Resend code error:', err);
+    return res.status(500).json({ message: 'Unable to resend verification code: ' + (err.message || 'Server error') });
+  }
+});
+
+// Legacy POST /api/auth/verify-email (backward compatibility)
 router.post('/verify-email', async (req, res) => {
   const { token } = req.body;
   if (!token || typeof token !== 'string') {
@@ -308,6 +508,7 @@ router.post('/verify-email', async (req, res) => {
   }
 });
 
+// Legacy POST /api/auth/resend-verification (backward compatibility)
 router.post('/resend-verification', async (req, res) => {
   const normalizedEmail = String(req.body.email || '').trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {

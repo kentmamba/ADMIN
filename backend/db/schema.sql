@@ -37,6 +37,10 @@ CREATE TABLE IF NOT EXISTS access_requests (
   email_verified    BOOLEAN NOT NULL DEFAULT false,
   verification_token_hash TEXT,
   verification_expires_at TIMESTAMPTZ,
+  email_verification_code_hash TEXT,
+  email_verification_expires_at TIMESTAMPTZ,
+  email_verification_sent_at TIMESTAMPTZ,
+  email_verification_attempts INT NOT NULL DEFAULT 0,
   requested_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
