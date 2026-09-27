@@ -14,6 +14,11 @@ const pool = new Pool({
   ssl: process.env.DATABASE_URL?.includes('localhost')
     ? false
     : { rejectUnauthorized: false },
+  max: 10,
+  idleTimeoutMillis: 10000,
+  connectionTimeoutMillis: 10000,
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10000,
 });
 
 pool.on('error', (err) => {

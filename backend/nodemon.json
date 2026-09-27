@@ -1,0 +1,11 @@
+{
+  "watch": [
+    "server.js",
+    "routes",
+    "db",
+    "middleware",
+    "utils",
+    ".env"
+  ],
+  "ext": "js,json,env"
+}
