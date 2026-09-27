@@ -40,10 +40,19 @@ const idUpload = makeUpload(ID_DIR, 'id');
 const photoUpload = makeUpload(PHOTO_DIR, 'resident');
 
 function createMailTransport() {
-  const { SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASS } = process.env;
-  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) return null;
+  const { SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASS, SMTP_SERVICE } = process.env;
+  if (!SMTP_USER || !SMTP_PASS) return null;
+  if (SMTP_USER.includes('your-sending-account') || SMTP_PASS.includes('your-16-character')) return null;
+
+  if (SMTP_SERVICE === 'gmail' || (!SMTP_HOST && SMTP_USER.includes('@gmail.com'))) {
+    return nodemailer.createTransport({
+      service: 'gmail',
+      auth: { user: SMTP_USER, pass: SMTP_PASS },
+    });
+  }
+
   return nodemailer.createTransport({
-    host: SMTP_HOST,
+    host: SMTP_HOST || 'smtp.gmail.com',
     port: Number(SMTP_PORT || 587),
     secure: SMTP_SECURE === 'true',
     auth: { user: SMTP_USER, pass: SMTP_PASS },
