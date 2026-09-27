@@ -68,8 +68,8 @@ async function sendVerificationCode(resident, mailTransport) {
     await mailTransport.sendMail({
       from: process.env.SMTP_FROM || process.env.SMTP_USER,
       to: resident.email,
-      subject: 'Your Barangay Poblacion verification code',
-      text: `Hello ${resident.fullName},\n\nYour email verification code is ${code}. It expires in 10 minutes.\n\nIf you did not start this registration, you can ignore this message.`,
+      subject: 'Your Barangay Poblacion System verification code',
+      text: `Hello ${resident.fullName},\n\nYour 6-digit email verification code for Barangay Poblacion System is: ${code}. It expires in 10 minutes.\n\nIf you did not start this registration, you can ignore this message.`,
     });
   } catch (err) {
     await pool.query(

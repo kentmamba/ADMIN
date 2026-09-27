@@ -106,19 +106,19 @@ async function sendAdminVerificationCode(request, mailTransport) {
     await mailTransport.sendMail({
       from: process.env.SMTP_FROM || process.env.SMTP_USER,
       to: request.email,
-      subject: 'Your Barangay Poblacion Admin Verification Code',
-      text: `Hello ${request.full_name || 'Administrator'},\n\nYour 6-digit verification code is:\n\n${code}\n\nThis code will expire in 15 minutes. Enter this code on the registration page to verify your institutional email address.\n\nIf you did not request administrative access, please ignore this email.`,
+      subject: 'Your Barangay Poblacion System Verification Code',
+      text: `Hello ${request.full_name || 'Administrator'},\n\nYour 6-digit verification code for Barangay Poblacion System is:\n\n${code}\n\nThis code will expire in 15 minutes. Enter this code on the registration page to verify your institutional email address.\n\nIf you did not request administrative access, please ignore this email.`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background: #ffffff;">
           <div style="text-align: center; margin-bottom: 20px;">
-            <h2 style="color: #0f172a; margin: 0; font-size: 20px;">Barangay Poblacion Administration</h2>
-            <p style="color: #64748b; font-size: 13px; margin: 4px 0 0;">Civic Ledger Administrative Access Verification</p>
+            <h2 style="color: #0f172a; margin: 0; font-size: 20px; font-weight: 700;">Barangay Poblacion System</h2>
+            <p style="color: #64748b; font-size: 13px; margin: 4px 0 0;">Official Administrative Access Verification</p>
           </div>
           <p style="color: #334155; font-size: 14px; line-height: 1.6;">
             Hello <strong>${request.full_name || 'Applicant'}</strong>,
           </p>
           <p style="color: #334155; font-size: 14px; line-height: 1.6;">
-            Use the following 6-digit verification code to verify your Gmail address and complete your administrative enrollment request:
+            Use the following 6-digit verification code to verify your Gmail address and complete your administrative enrollment request in <strong>Barangay Poblacion System</strong>:
           </p>
           <div style="text-align: center; margin: 28px 0; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 18px;">
             <span style="font-size: 32px; font-weight: 800; letter-spacing: 8px; color: #1e3a8a; font-family: monospace;">${code}</span>
@@ -128,7 +128,7 @@ async function sendAdminVerificationCode(request, mailTransport) {
           </p>
           <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
           <p style="color: #94a3b8; font-size: 11px; text-align: center;">
-            Smart Profiling and Complaint Management System • Barangay Poblacion
+            Barangay Poblacion System • Smart Profiling & Complaint Management
           </p>
         </div>
       `,
