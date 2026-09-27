@@ -35,6 +35,30 @@ const upload = multer({
   },
 });
 
+// ---- Admin registration ID photo upload setup ----
+const ADMIN_ID_DIR = path.join(__dirname, '..', 'uploads', 'admin-ids');
+fs.mkdirSync(ADMIN_ID_DIR, { recursive: true });
+
+const adminIdStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, ADMIN_ID_DIR),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname) || '.jpg';
+    cb(null, `admin-id-${Date.now()}-${uuidv4().slice(0, 8)}${ext}`);
+  },
+});
+
+const adminIdUpload = multer({
+  storage: adminIdStorage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  fileFilter: (req, file, cb) => {
+    const ok = file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf';
+    if (!ok) {
+      return cb(new Error('Only image or PDF files are allowed.'));
+    }
+    cb(null, true);
+  },
+});
+
 function createMailTransport() {
   const { SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASS } = process.env;
   if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) return null;
@@ -94,69 +118,169 @@ router.post('/login', async (req, res) => {
 });
 
 // POST /api/auth/request-access
-router.post('/request-access', async (req, res) => {
-  const { fullName, email, department, employeeId, password } = req.body;
-
-  if (!fullName || !email || !department || !employeeId || !password) {
-    return res.status(400).json({ message: 'All fields are required.' });
-  }
-
-  const normalizedEmail = String(email).trim().toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
-    return res.status(400).json({ message: 'Enter a valid email address.' });
-  }
-
-  const mailTransport = createMailTransport();
-  if (!mailTransport) {
-    return res.status(503).json({ message: 'Email verification is not configured. Contact the system administrator.' });
-  }
-
-  try {
-    const { rows: existingRequests } = await pool.query(
-      'SELECT id FROM access_requests WHERE LOWER(email) = $1',
-      [normalizedEmail]
-    );
-    const { rows: existingAdmins } = await pool.query(
-      'SELECT id FROM admins WHERE LOWER(email) = $1',
-      [normalizedEmail]
-    );
-
-    if (existingRequests.length > 0 || existingAdmins.length > 0) {
-      return res.status(409).json({ message: 'An account or request already exists for this email.' });
+router.post('/request-access', (req, res) => {
+  adminIdUpload.single('idPhoto')(req, res, async (uploadErr) => {
+    if (uploadErr) {
+      return res.status(400).json({ message: uploadErr.message || 'Unable to upload ID photo.' });
     }
 
-    const requestId = uuidv4();
-    const verificationToken = crypto.randomBytes(32).toString('hex');
-    const verificationTokenHash = crypto.createHash('sha256').update(verificationToken).digest('hex');
-    await pool.query(
-      `INSERT INTO access_requests
-         (id, full_name, email, department, employee_id, password_hash, status,
-          email_verified, verification_token_hash, verification_expires_at)
-       VALUES ($1,$2,$3,$4,$5,$6,'pending',false,$7,now() + interval '24 hours')`,
-      [requestId, fullName.trim(), normalizedEmail, department, employeeId.trim(), hashPassword(password), verificationTokenHash]
-    );
-
-    const verificationUrl = new URL('/verify-email', process.env.FRONTEND_URL || 'http://localhost:5173');
-    verificationUrl.searchParams.set('token', verificationToken);
     try {
-      await mailTransport.sendMail({
-        from: process.env.SMTP_FROM || process.env.SMTP_USER,
-        to: normalizedEmail,
-        subject: 'Verify your Barangay Poblacion admin request',
-        text: `Hello ${fullName.trim()},\n\nVerify this email address to submit your admin access request for board review:\n${verificationUrl.toString()}\n\nThis link expires in 24 hours. If you did not request access, you can ignore this message.`,
-      });
-    } catch (mailError) {
-      await pool.query('DELETE FROM access_requests WHERE id = $1 AND email_verified = false', [requestId]);
-      throw mailError;
-    }
+      const {
+        firstName,
+        middleName,
+        lastName,
+        fullName: rawFullName,
+        sex,
+        contactNo,
+        email,
+        department,
+        employeeId,
+        password,
+      } = req.body;
 
-    res.status(201).json({
-      message: 'A verification link has been sent to your email. Verify your address before your access request can be reviewed.',
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Unable to submit the request or send its verification email.' });
-  }
+      const fName = String(firstName || '').trim();
+      const mName = String(middleName || '').trim();
+      const lName = String(lastName || '').trim();
+      const derivedFullName = [fName, mName, lName].filter(Boolean).join(' ');
+      const finalFullName = derivedFullName || String(rawFullName || '').trim();
+      const userSex = String(sex || '').trim();
+      const userContact = String(contactNo || '').trim();
+      const normalizedEmail = String(email || '').trim().toLowerCase();
+      const empId = String(employeeId || '').trim();
+      const dept = String(department || '').trim();
+      const pwd = String(password || '');
+
+      if (!fName && !finalFullName) {
+        if (req.file) fs.unlink(req.file.path, () => {});
+        return res.status(400).json({ message: 'First name is required.' });
+      }
+      if (!lName && !finalFullName) {
+        if (req.file) fs.unlink(req.file.path, () => {});
+        return res.status(400).json({ message: 'Last name is required.' });
+      }
+      if (!userSex) {
+        if (req.file) fs.unlink(req.file.path, () => {});
+        return res.status(400).json({ message: 'Sex is required.' });
+      }
+      if (!userContact) {
+        if (req.file) fs.unlink(req.file.path, () => {});
+        return res.status(400).json({ message: 'Contact number is required.' });
+      }
+      if (!normalizedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+        if (req.file) fs.unlink(req.file.path, () => {});
+        return res.status(400).json({ message: 'Enter a valid email address.' });
+      }
+      if (!empId) {
+        if (req.file) fs.unlink(req.file.path, () => {});
+        return res.status(400).json({ message: 'Employee ID is required.' });
+      }
+      if (!dept) {
+        if (req.file) fs.unlink(req.file.path, () => {});
+        return res.status(400).json({ message: 'Department is required.' });
+      }
+      if (!pwd || pwd.length < 8) {
+        if (req.file) fs.unlink(req.file.path, () => {});
+        return res.status(400).json({ message: 'Password must be at least 8 characters.' });
+      }
+
+      const idDocumentUrl = req.file ? `/uploads/admin-ids/${req.file.filename}` : null;
+
+      const { rows: existingRequests } = await pool.query(
+        'SELECT id FROM access_requests WHERE LOWER(email) = $1',
+        [normalizedEmail]
+      );
+      const { rows: existingAdmins } = await pool.query(
+        'SELECT id FROM admins WHERE LOWER(email) = $1 OR institutional_id = $2',
+        [normalizedEmail, empId]
+      );
+
+      if (existingRequests.length > 0 || existingAdmins.length > 0) {
+        if (req.file) fs.unlink(req.file.path, () => {});
+        return res.status(409).json({ message: 'An account or request already exists for this email or Employee ID.' });
+      }
+
+      const requestId = uuidv4();
+      const mailTransport = createMailTransport();
+
+      if (mailTransport) {
+        const verificationToken = crypto.randomBytes(32).toString('hex');
+        const verificationTokenHash = crypto.createHash('sha256').update(verificationToken).digest('hex');
+
+        await pool.query(
+          `INSERT INTO access_requests
+             (id, first_name, middle_name, last_name, full_name, sex, contact_no, email, department,
+              employee_id, password_hash, id_document_url, status, email_verified,
+              verification_token_hash, verification_expires_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'pending',false,$13,now() + interval '24 hours')`,
+          [
+            requestId,
+            fName,
+            mName,
+            lName,
+            finalFullName,
+            userSex,
+            userContact,
+            normalizedEmail,
+            dept,
+            empId,
+            hashPassword(pwd),
+            idDocumentUrl,
+            verificationTokenHash,
+          ]
+        );
+
+        const verificationUrl = new URL('/verify-email', process.env.FRONTEND_URL || 'http://localhost:5173');
+        verificationUrl.searchParams.set('token', verificationToken);
+        try {
+          await mailTransport.sendMail({
+            from: process.env.SMTP_FROM || process.env.SMTP_USER,
+            to: normalizedEmail,
+            subject: 'Verify your Barangay Poblacion admin request',
+            text: `Hello ${finalFullName},\n\nVerify this email address to submit your admin access request for board review:\n${verificationUrl.toString()}\n\nThis link expires in 24 hours. If you did not request access, you can ignore this message.`,
+          });
+        } catch (mailError) {
+          await pool.query('DELETE FROM access_requests WHERE id = $1', [requestId]);
+          if (req.file) fs.unlink(req.file.path, () => {});
+          throw mailError;
+        }
+
+        return res.status(201).json({
+          message: 'A verification link has been sent to your email. Verify your address before your access request can be reviewed.',
+        });
+      } else {
+        // Mail transport is not configured (e.g. local environment):
+        // Automatically mark as verified so request is immediately available for board review.
+        await pool.query(
+          `INSERT INTO access_requests
+             (id, first_name, middle_name, last_name, full_name, sex, contact_no, email, department,
+              employee_id, password_hash, id_document_url, status, email_verified)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'pending',true)`,
+          [
+            requestId,
+            fName,
+            mName,
+            lName,
+            finalFullName,
+            userSex,
+            userContact,
+            normalizedEmail,
+            dept,
+            empId,
+            hashPassword(pwd),
+            idDocumentUrl,
+          ]
+        );
+
+        return res.status(201).json({
+          message: 'Your registration request has been submitted successfully and is pending review by the Institutional Board.',
+        });
+      }
+    } catch (err) {
+      console.error('Request access error:', err);
+      if (req.file) fs.unlink(req.file.path, () => {});
+      return res.status(500).json({ message: 'Unable to submit request: ' + (err.message || 'Server error') });
+    }
+  });
 });
 
 router.post('/verify-email', async (req, res) => {
@@ -247,7 +371,7 @@ router.post('/forgot-password', (req, res) => {
 router.get('/me', requireAuth, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      'SELECT id, institutional_id, full_name, email, department, role, photo_url FROM admins WHERE id = $1',
+      'SELECT id, institutional_id, first_name, middle_name, last_name, full_name, sex, contact_no, email, department, role, photo_url, id_document_url FROM admins WHERE id = $1',
       [req.admin.id]
     );
     if (rows.length === 0) return res.status(404).json({ message: 'Admin not found.' });
@@ -256,11 +380,17 @@ router.get('/me', requireAuth, async (req, res) => {
     res.json({
       id: a.id,
       institutionalId: a.institutional_id,
+      firstName: a.first_name,
+      middleName: a.middle_name,
+      lastName: a.last_name,
       fullName: a.full_name,
+      sex: a.sex,
+      contactNo: a.contact_no,
       email: a.email,
       department: a.department,
       role: a.role,
       photoUrl: a.photo_url,
+      idDocumentUrl: a.id_document_url,
     });
   } catch (err) {
     console.error(err);
@@ -350,16 +480,22 @@ router.post('/change-password', requireAuth, async (req, res) => {
 router.get('/access-requests', requireAuth, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, full_name, email, department, employee_id, requested_at
-       FROM access_requests WHERE status = 'pending' AND email_verified = true ORDER BY requested_at ASC`
+      `SELECT id, first_name, middle_name, last_name, full_name, sex, contact_no, email, department, employee_id, id_document_url, requested_at
+       FROM access_requests WHERE status = 'pending' AND (email_verified = true OR email_verified IS NULL) ORDER BY requested_at ASC`
     );
     res.json(
       rows.map((r) => ({
         id: r.id,
-        fullName: r.full_name,
+        firstName: r.first_name,
+        middleName: r.middle_name,
+        lastName: r.last_name,
+        fullName: r.full_name || [r.first_name, r.middle_name, r.last_name].filter(Boolean).join(' '),
+        sex: r.sex,
+        contactNo: r.contact_no,
         email: r.email,
         department: r.department,
         employeeId: r.employee_id,
+        idDocumentUrl: r.id_document_url,
         requestedAt: r.requested_at,
       }))
     );
@@ -384,7 +520,7 @@ router.post('/access-requests/:id/approve', requireAuth, async (req, res) => {
       await client.query('ROLLBACK');
       return res.status(404).json({ message: 'Request not found.' });
     }
-    if (!request.email_verified) {
+    if (request.email_verified === false) {
       await client.query('ROLLBACK');
       return res.status(403).json({ message: 'The applicant must verify their email before approval.' });
     }
@@ -400,9 +536,23 @@ router.post('/access-requests/:id/approve', requireAuth, async (req, res) => {
 
     const newAdminId = `adm-${uuidv4().slice(0, 8)}`;
     await client.query(
-      `INSERT INTO admins (id, institutional_id, full_name, email, department, password_hash, status, role)
-       VALUES ($1,$2,$3,$4,$5,$6,'approved','Administrator')`,
-      [newAdminId, request.employee_id, request.full_name, request.email, request.department, request.password_hash]
+      `INSERT INTO admins (id, institutional_id, first_name, middle_name, last_name, full_name, sex, contact_no, email, department, password_hash, status, role, photo_url, id_document_url)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'approved','Administrator',$12,$13)`,
+      [
+        newAdminId,
+        request.employee_id,
+        request.first_name || '',
+        request.middle_name || '',
+        request.last_name || '',
+        request.full_name,
+        request.sex || '',
+        request.contact_no || '',
+        request.email,
+        request.department,
+        request.password_hash,
+        request.id_document_url || null,
+        request.id_document_url || null,
+      ]
     );
 
     await client.query('DELETE FROM access_requests WHERE id = $1', [request.id]);

@@ -28,7 +28,24 @@ async function run() {
     ALTER TABLE access_requests
       ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT false,
       ADD COLUMN IF NOT EXISTS verification_token_hash TEXT,
-      ADD COLUMN IF NOT EXISTS verification_expires_at TIMESTAMPTZ
+      ADD COLUMN IF NOT EXISTS verification_expires_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS first_name TEXT,
+      ADD COLUMN IF NOT EXISTS middle_name TEXT,
+      ADD COLUMN IF NOT EXISTS last_name TEXT,
+      ADD COLUMN IF NOT EXISTS sex TEXT,
+      ADD COLUMN IF NOT EXISTS contact_no TEXT,
+      ADD COLUMN IF NOT EXISTS id_document_url TEXT
+  `);
+
+  console.log('Ensuring admin name breakdown and details columns exist...');
+  await pool.query(`
+    ALTER TABLE admins
+      ADD COLUMN IF NOT EXISTS first_name TEXT,
+      ADD COLUMN IF NOT EXISTS middle_name TEXT,
+      ADD COLUMN IF NOT EXISTS last_name TEXT,
+      ADD COLUMN IF NOT EXISTS sex TEXT,
+      ADD COLUMN IF NOT EXISTS contact_no TEXT,
+      ADD COLUMN IF NOT EXISTS id_document_url TEXT
   `);
 
   // Resident-portal self-service account fields (self-registration, login, preferences)

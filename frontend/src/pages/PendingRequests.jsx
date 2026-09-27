@@ -9,6 +9,7 @@ export default function PendingRequests() {
   const [error, setError] = useState('');
   const [actioningId, setActioningId] = useState(null);
   const [message, setMessage] = useState('');
+  const [previewDoc, setPreviewDoc] = useState(null);
 
   const load = () => {
     setLoading(true);
@@ -172,9 +173,12 @@ export default function PendingRequests() {
           <thead>
             <tr className="text-left text-xs text-slate-400 border-b border-slate-100">
               <th className="px-5 py-3 font-medium">FULL NAME</th>
+              <th className="px-5 py-3 font-medium">SEX</th>
+              <th className="px-5 py-3 font-medium">CONTACT</th>
               <th className="px-5 py-3 font-medium">EMAIL</th>
               <th className="px-5 py-3 font-medium">DEPARTMENT</th>
               <th className="px-5 py-3 font-medium">EMPLOYEE ID</th>
+              <th className="px-5 py-3 font-medium">ID PHOTO</th>
               <th className="px-5 py-3 font-medium">REQUESTED</th>
               <th className="px-5 py-3 font-medium">ACTIONS</th>
             </tr>
@@ -182,25 +186,65 @@ export default function PendingRequests() {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={6} className="px-5 py-6 text-center text-slate-400">
+                <td colSpan={9} className="px-5 py-6 text-center text-slate-400">
                   Loading requests…
                 </td>
               </tr>
             )}
             {!loading && requests.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-5 py-6 text-center text-slate-400">
+                <td colSpan={9} className="px-5 py-6 text-center text-slate-400">
                   No pending requests.
                 </td>
               </tr>
             )}
             {requests.map((r) => (
               <tr key={r.id} className="border-b border-slate-50 hover:bg-slate-50">
-                <td className="px-5 py-3 font-medium text-slate-800">{r.fullName}</td>
+                <td className="px-5 py-3 font-medium text-slate-800">
+                  <div>{r.fullName}</div>
+                  {(r.firstName || r.lastName) && (
+                    <div className="text-[11px] text-slate-400">
+                      {[r.firstName, r.middleName, r.lastName].filter(Boolean).join(' ')}
+                    </div>
+                  )}
+                </td>
+                <td className="px-5 py-3 text-slate-600">{r.sex || '—'}</td>
+                <td className="px-5 py-3 text-slate-600">{r.contactNo || '—'}</td>
                 <td className="px-5 py-3 text-slate-500">{r.email}</td>
                 <td className="px-5 py-3 text-slate-500">{r.department}</td>
                 <td className="px-5 py-3 text-slate-500">{r.employeeId}</td>
-                <td className="px-5 py-3 text-slate-400 text-xs">
+                <td className="px-5 py-3">
+                  {r.idDocumentUrl ? (
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewDoc({ url: r.idDocumentUrl, name: r.fullName })}
+                        className="relative group w-10 h-10 rounded-lg overflow-hidden border border-slate-200 hover:border-blue-500 transition flex-shrink-0 cursor-pointer shadow-xs bg-slate-100"
+                        title="Click to preview ID photo"
+                      >
+                        <img
+                          src={r.idDocumentUrl}
+                          alt={r.fullName}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                        />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs font-bold transition-opacity">
+                          🔍
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPreviewDoc({ url: r.idDocumentUrl, name: r.fullName })}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors"
+                      >
+                        <span>🪪</span>
+                        <span>View</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <span className="text-xs text-slate-400">None</span>
+                  )}
+                </td>
+                <td className="px-5 py-3 text-slate-400 text-xs whitespace-nowrap">
                   {new Date(r.requestedAt).toLocaleString()}
                 </td>
                 <td className="px-5 py-3 space-x-2 whitespace-nowrap">
@@ -224,6 +268,58 @@ export default function PendingRequests() {
           </tbody>
         </table>
       </div>
+
+      {previewDoc && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4"
+          onClick={() => setPreviewDoc(null)}
+        >
+          <div
+            className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl overflow-hidden relative"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+              <div>
+                <h3 className="font-bold text-slate-900 text-lg">ID Verification Photo</h3>
+                <p className="text-xs text-slate-500">Applicant: {previewDoc.name}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreviewDoc(null)}
+                className="w-8 h-8 rounded-full hover:bg-slate-100 text-slate-500 flex items-center justify-center text-lg font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="my-4 max-h-[65vh] flex items-center justify-center overflow-auto rounded-xl bg-slate-900/5 p-2">
+              <img
+                src={previewDoc.url}
+                alt="ID Document"
+                className="max-h-[60vh] w-auto object-contain rounded-lg shadow-sm"
+              />
+            </div>
+
+            <div className="flex items-center justify-between pt-2">
+              <a
+                href={previewDoc.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-blue-600 hover:underline flex items-center gap-1 font-medium"
+              >
+                ↗ Open original in new tab
+              </a>
+              <button
+                type="button"
+                onClick={() => setPreviewDoc(null)}
+                className="px-4 py-2 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors"
+              >
+                Close Preview
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
