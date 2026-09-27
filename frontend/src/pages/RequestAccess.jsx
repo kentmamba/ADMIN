@@ -635,42 +635,57 @@ export default function RequestAccess() {
           {/* Step 3: Completed & Queued for Approval */}
           {step === 'completed' && (
             <div className="text-center py-6 space-y-5">
-              <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto text-3xl shadow-xs">
-                ✓
+              <div className="w-16 h-16 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto text-3xl shadow-xs">
+                ⏳
               </div>
 
               <div>
-                <span className="inline-block text-[11px] font-bold tracking-wider bg-green-100 text-green-700 px-2 py-0.5 rounded uppercase">
-                  Verification Complete
+                <span className="inline-block text-[11px] font-bold tracking-wider bg-amber-100 text-amber-800 border border-amber-300 px-3 py-1 rounded-full uppercase">
+                  ⏳ Waiting for Approval
                 </span>
-                <h2 className="font-extrabold text-2xl text-slate-900 mt-2">
-                  Request Submitted Successfully
+                <h2 className="font-extrabold text-2xl text-slate-900 mt-3">
+                  Waiting for Approval
                 </h2>
                 <p className="text-sm text-slate-600 mt-2 leading-relaxed">
-                  Your email (<strong className="text-slate-800">{verificationEmail || form.email}</strong>) has been verified.
-                  Your administrative enrollment request is now awaiting final review by the Institutional Board.
+                  Your email (<strong className="text-slate-800">{verificationEmail || form.email}</strong>) has been verified successfully.
+                  Your registration is now <strong className="text-amber-700">Waiting for Approval</strong> by the Barangay Poblacion System administration.
                 </p>
               </div>
 
-              <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 text-xs text-slate-600 text-left space-y-2">
-                <div className="flex justify-between">
+              <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 text-xs text-slate-600 text-left space-y-2.5">
+                <div className="flex justify-between items-center">
                   <span className="font-semibold text-slate-500">Applicant:</span>
-                  <span className="text-slate-800 font-medium">
+                  <span className="text-slate-900 font-semibold">
                     {[form.firstName, form.middleName, form.lastName].filter(Boolean).join(' ') || 'Administrator'}
                   </span>
                 </div>
-                <div className="flex justify-between">
+                <div className="flex justify-between items-center">
                   <span className="font-semibold text-slate-500">Employee ID:</span>
                   <span className="text-slate-800 font-medium">{form.employeeId || 'CL-8848-00X'}</span>
                 </div>
-                <div className="flex justify-between">
+                <div className="flex justify-between items-center">
                   <span className="font-semibold text-slate-500">Department:</span>
                   <span className="text-slate-800 font-medium">{form.department}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="font-semibold text-slate-500">Verification Status:</span>
-                  <span className="text-green-600 font-bold">Email Verified ✓</span>
+                <div className="flex justify-between items-center">
+                  <span className="font-semibold text-slate-500">Email Verification:</span>
+                  <span className="text-green-600 font-bold flex items-center gap-1">
+                    <span>✓</span> Verified
+                  </span>
                 </div>
+                <div className="flex justify-between items-center pt-1 border-t border-slate-200">
+                  <span className="font-semibold text-slate-500">Account Status:</span>
+                  <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-800 font-bold text-[11px] px-2.5 py-0.5 rounded-full border border-amber-300">
+                    ⏳ Waiting for Approval
+                  </span>
+                </div>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 text-blue-900 text-xs rounded-lg p-3 text-left flex gap-2.5">
+                <span className="text-base">📋</span>
+                <p>
+                  Your registration details and ID document have been sent to the <strong>Pending Requests</strong> queue. You will be able to log in once an active Administrator approves your request.
+                </p>
               </div>
 
               <div className="pt-2">
@@ -681,10 +696,6 @@ export default function RequestAccess() {
                   RETURN TO LOGIN
                 </Link>
               </div>
-
-              <p className="text-xs text-slate-400">
-                You will be able to sign in once an active Administrator approves your request.
-              </p>
             </div>
           )}
         </div>

@@ -431,7 +431,7 @@ router.post('/verify-code', async (req, res) => {
 
     return res.json({
       success: true,
-      message: 'Email verified successfully! Your application has been submitted to the Institutional Board for review.',
+      message: 'Email verified successfully! Your application is now Waiting for Approval by the Institutional Board.',
     });
   } catch (err) {
     console.error('Verify code error:', err);
