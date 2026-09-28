@@ -111,9 +111,9 @@ export default function Sidebar() {
     <aside className="admin-sidebar w-64 shrink-0 bg-navy-950 text-slate-200 min-h-screen flex flex-col">
       <div className="px-5 py-6 flex items-center gap-3 border-b border-white/10">
         <img
-          src="/barangay-seal.svg"
+          src="/barangay-seal.png"
           alt="Barangay Poblacion seal"
-          className="h-9 w-9 rounded-full object-contain shrink-0"
+          className="h-10 w-10 rounded-full object-contain shrink-0 drop-shadow-sm"
         />
         <div className="min-w-0">
           <p className="font-semibold text-white leading-tight truncate">Barangay Poblacion</p>

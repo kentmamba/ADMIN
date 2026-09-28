@@ -18,6 +18,8 @@ export default function RequestAccess() {
   });
   const [idPhoto, setIdPhoto] = useState(null);
   const [idPhotoPreview, setIdPhotoPreview] = useState('');
+  const [selfiePhoto, setSelfiePhoto] = useState(null);
+  const [selfiePhotoPreview, setSelfiePhotoPreview] = useState('');
   const [agreed, setAgreed] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -51,11 +53,11 @@ export default function RequestAccess() {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith('image/')) {
-      setError('Please select a valid image file (JPG, PNG, or WebP).');
+      setError('Please select a valid image file (JPG, PNG, or WebP) for your ID.');
       return;
     }
     if (file.size > 5 * 1024 * 1024) {
-      setError('Image file size must be less than 5MB.');
+      setError('ID image file size must be less than 5MB.');
       return;
     }
     setError('');
@@ -66,6 +68,27 @@ export default function RequestAccess() {
   const handleRemovePhoto = () => {
     setIdPhoto(null);
     setIdPhotoPreview('');
+  };
+
+  const handleSelfieSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setError('Please select a valid image file (JPG, PNG, or WebP) for your selfie holding ID.');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setError('Selfie image file size must be less than 5MB.');
+      return;
+    }
+    setError('');
+    setSelfiePhoto(file);
+    setSelfiePhotoPreview(URL.createObjectURL(file));
+  };
+
+  const handleRemoveSelfie = () => {
+    setSelfiePhoto(null);
+    setSelfiePhotoPreview('');
   };
 
   const handleSubmit = async (e) => {
@@ -90,7 +113,11 @@ export default function RequestAccess() {
       return;
     }
     if (!idPhoto) {
-      setError('Please upload your photo for your ID verification.');
+      setError('Please upload your valid government or institutional ID photo.');
+      return;
+    }
+    if (!selfiePhoto) {
+      setError('Please upload a selfie holding your ID to confirm your identity.');
       return;
     }
     if (!agreed) {
@@ -111,6 +138,7 @@ export default function RequestAccess() {
       formData.append('employeeId', form.employeeId.trim());
       formData.append('password', form.password);
       formData.append('idPhoto', idPhoto);
+      formData.append('selfiePhoto', selfiePhoto);
 
       const { data } = await api.post('/auth/request-access', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -242,58 +270,67 @@ export default function RequestAccess() {
 
   return (
     <div className="admin-auth-scene admin-request-scene min-h-screen">
-      <div className="admin-request-header px-8 py-4 text-xs font-semibold tracking-wide text-slate-500">
-        SMART PROFILING AND COMPLAINT MANAGEMENT SYSTEM FOR BARANGAY POBLACION
+      <div className="admin-request-header px-8 py-4 text-xs font-semibold tracking-wide text-slate-500 flex items-center gap-3">
+        <img src="/barangay-seal.png" alt="Barangay Poblacion seal" className="h-7 w-7 object-contain drop-shadow-xs" />
+        <span>SMART PROFILING AND COMPLAINT MANAGEMENT SYSTEM FOR BARANGAY POBLACION</span>
       </div>
-      <div className="admin-request-shell max-w-6xl mx-auto grid md:grid-cols-2 gap-10 px-8 py-10">
-        {/* Left Information Section */}
-        <div>
-          <span className="inline-block text-[11px] font-semibold tracking-wide bg-orange-100 text-orange-600 px-2 py-1 rounded">
-            ACCESS PROTOCOL
-          </span>
-          <h1 className="text-4xl font-extrabold mt-4 leading-tight text-slate-900">
-            Administrative Authority Enrollment.
-          </h1>
-          <p className="text-slate-500 mt-4 leading-relaxed">
-            Secure the integrity of regional governance. Request access to the Civic Ledger portal to
-            manage institutional records and oversight.
-          </p>
+      <div
+        className={`admin-request-shell mx-auto px-8 py-10 ${
+          step === 'form'
+            ? 'max-w-6xl grid md:grid-cols-2 gap-10'
+            : 'admin-request-single max-w-xl block my-10'
+        }`}
+      >
+        {/* Left Information Section - only visible in form step */}
+        {step === 'form' && (
+          <div>
+            <span className="inline-block text-[11px] font-semibold tracking-wide bg-orange-100 text-orange-600 px-2 py-1 rounded">
+              ACCESS PROTOCOL
+            </span>
+            <h1 className="text-4xl font-extrabold mt-4 leading-tight text-slate-900">
+              Administrative Authority Enrollment.
+            </h1>
+            <p className="text-slate-500 mt-4 leading-relaxed">
+              Secure the integrity of regional governance. Request access to the Civic Ledger portal to
+              manage institutional records and oversight.
+            </p>
 
-          <div className="mt-8 space-y-6">
-            <div className="flex gap-3">
-              <span className="text-2xl">🛡️</span>
-              <div>
-                <p className="font-semibold text-slate-800">Identity Verification</p>
-                <p className="text-sm text-slate-500">
-                  Official ID photo validation and departmental credential checks are required for all
-                  administrative tiers.
-                </p>
+            <div className="mt-8 space-y-6">
+              <div className="flex gap-3">
+                <span className="text-2xl">🛡️</span>
+                <div>
+                  <p className="font-semibold text-slate-800">Identity Verification</p>
+                  <p className="text-sm text-slate-500">
+                    Official ID photo validation and departmental credential checks are required for all
+                    administrative tiers.
+                  </p>
+                </div>
               </div>
-            </div>
-            <div className="flex gap-3">
-              <span className="text-2xl">✉️</span>
-              <div>
-                <p className="font-semibold text-slate-800">Gmail Verification Code</p>
-                <p className="text-sm text-slate-500">
-                  A 6-digit verification code is delivered directly to your Gmail inbox to confirm ownership
-                  before board submission.
-                </p>
+              <div className="flex gap-3">
+                <span className="text-2xl">✉️</span>
+                <div>
+                  <p className="font-semibold text-slate-800">Gmail Verification Code</p>
+                  <p className="text-sm text-slate-500">
+                    A 6-digit verification code is delivered directly to your Gmail inbox to confirm ownership
+                    before board submission.
+                  </p>
+                </div>
               </div>
-            </div>
-            <div className="flex gap-3">
-              <span className="text-2xl">🔒</span>
-              <div>
-                <p className="font-semibold text-slate-800">Encrypted Ledger</p>
-                <p className="text-sm text-slate-500">
-                  All institutional interactions are logged on an immutable, AES-256 encrypted framework.
-                </p>
+              <div className="flex gap-3">
+                <span className="text-2xl">🔒</span>
+                <div>
+                  <p className="font-semibold text-slate-800">Encrypted Ledger</p>
+                  <p className="text-sm text-slate-500">
+                    All institutional interactions are logged on an immutable, AES-256 encrypted framework.
+                  </p>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* Right Form / Verification / Completed Panel */}
-        <div className="admin-request-panel p-8">
+        <div className={`admin-request-panel ${step === 'form' ? 'p-8' : 'p-6 sm:p-8 border-0'}`}>
           {step === 'form' && (
             <>
               <h2 className="font-bold text-xl text-slate-900">Request Admin Credentials</h2>
@@ -370,11 +407,14 @@ export default function RequestAccess() {
                   </div>
                 </div>
 
-                {/* Photo in your ID Upload */}
+                {/* Field 1: Valid ID Card Photo */}
                 <div>
                   <label className="text-xs font-semibold text-slate-600 block mb-1">
-                    PHOTO IN YOUR ID / VALID ID PHOTO <span className="text-red-500">*</span>
+                    1. VALID ID CARD PHOTO <span className="text-red-500">*</span>
                   </label>
+                  <p className="text-[11px] text-slate-400 mb-1.5">
+                    Clear front-facing photo of your Employee ID or Government-issued ID.
+                  </p>
                   {idPhotoPreview ? (
                     <div className="flex items-center gap-3 p-3 bg-white/70 backdrop-blur-xs border border-slate-200 rounded-lg">
                       <img
@@ -385,7 +425,7 @@ export default function RequestAccess() {
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-medium text-slate-800 truncate">{idPhoto?.name}</p>
                         <p className="text-[11px] text-slate-400">
-                          {(idPhoto?.size / (1024 * 1024)).toFixed(2)} MB • Photo Attached
+                          {(idPhoto?.size / (1024 * 1024)).toFixed(2)} MB • ID Photo Attached
                         </p>
                         <div className="mt-1 flex gap-2">
                           <label className="text-xs text-blue-600 hover:text-blue-700 font-medium cursor-pointer">
@@ -411,17 +451,75 @@ export default function RequestAccess() {
                     <label className="flex flex-col items-center justify-center border-2 border-dashed border-slate-300 hover:border-blue-400 rounded-lg p-4 bg-white/60 hover:bg-white/80 transition-colors cursor-pointer text-center group">
                       <span className="text-2xl mb-1 group-hover:scale-110 transition-transform">🪪</span>
                       <span className="text-xs font-semibold text-slate-700">
-                        Click to upload your photo or ID card
+                        Click to upload your ID card
                       </span>
                       <span className="text-[11px] text-slate-400 mt-0.5">
-                        JPG, PNG, or WebP up to 5MB (Clear front-facing photo or ID)
+                        JPG, PNG, or WebP up to 5MB (Clear front photo of your ID)
                       </span>
                       <input
                         type="file"
                         accept="image/*"
                         onChange={handlePhotoSelect}
                         className="hidden"
-                        required
+                      />
+                    </label>
+                  )}
+                </div>
+
+                {/* Field 2: Selfie Holding Your Valid ID */}
+                <div>
+                  <label className="text-xs font-semibold text-slate-600 block mb-1">
+                    2. SELFIE HOLDING YOUR VALID ID <span className="text-red-500">*</span>
+                  </label>
+                  <p className="text-[11px] text-slate-400 mb-1.5">
+                    Hold your ID card next to your face so your face and ID details are both clearly visible.
+                  </p>
+                  {selfiePhotoPreview ? (
+                    <div className="flex items-center gap-3 p-3 bg-white/70 backdrop-blur-xs border border-slate-200 rounded-lg">
+                      <img
+                        src={selfiePhotoPreview}
+                        alt="Selfie with ID Preview"
+                        className="w-16 h-16 rounded-md object-cover border border-slate-300 shadow-xs"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-slate-800 truncate">{selfiePhoto?.name}</p>
+                        <p className="text-[11px] text-slate-400">
+                          {(selfiePhoto?.size / (1024 * 1024)).toFixed(2)} MB • Selfie Attached
+                        </p>
+                        <div className="mt-1 flex gap-2">
+                          <label className="text-xs text-blue-600 hover:text-blue-700 font-medium cursor-pointer">
+                            Change Photo
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={handleSelfieSelect}
+                              className="hidden"
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            onClick={handleRemoveSelfie}
+                            className="text-xs text-red-600 hover:text-red-700 font-medium"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <label className="flex flex-col items-center justify-center border-2 border-dashed border-slate-300 hover:border-blue-400 rounded-lg p-4 bg-white/60 hover:bg-white/80 transition-colors cursor-pointer text-center group">
+                      <span className="text-2xl mb-1 group-hover:scale-110 transition-transform">🤳</span>
+                      <span className="text-xs font-semibold text-slate-700">
+                        Click to upload selfie holding your ID
+                      </span>
+                      <span className="text-[11px] text-slate-400 mt-0.5">
+                        JPG, PNG, or WebP up to 5MB (Clear face + ID card in frame)
+                      </span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleSelfieSelect}
+                        className="hidden"
                       />
                     </label>
                   )}

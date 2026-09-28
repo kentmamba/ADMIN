@@ -59,6 +59,11 @@ const adminIdUpload = multer({
   },
 });
 
+const adminRegistrationUpload = adminIdUpload.fields([
+  { name: 'idPhoto', maxCount: 1 },
+  { name: 'selfiePhoto', maxCount: 1 },
+]);
+
 function createMailTransport() {
   const { SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASS, SMTP_SERVICE } = process.env;
   if (!SMTP_USER || !SMTP_PASS) return null;
@@ -191,10 +196,18 @@ router.post('/login', async (req, res) => {
 
 // POST /api/auth/request-access
 router.post('/request-access', (req, res) => {
-  adminIdUpload.single('idPhoto')(req, res, async (uploadErr) => {
+  adminRegistrationUpload(req, res, async (uploadErr) => {
     if (uploadErr) {
-      return res.status(400).json({ message: uploadErr.message || 'Unable to upload ID photo.' });
+      return res.status(400).json({ message: uploadErr.message || 'Unable to upload identification files.' });
     }
+
+    const cleanupFiles = () => {
+      if (req.files) {
+        Object.values(req.files).flat().forEach((f) => {
+          if (f?.path) fs.unlink(f.path, () => {});
+        });
+      }
+    };
 
     try {
       const {
@@ -222,40 +235,52 @@ router.post('/request-access', (req, res) => {
       const dept = String(department || '').trim();
       const pwd = String(password || '');
 
+      const idPhotoFile = req.files?.['idPhoto']?.[0];
+      const selfiePhotoFile = req.files?.['selfiePhoto']?.[0];
+
       if (!fName && !finalFullName) {
-        if (req.file) fs.unlink(req.file.path, () => {});
+        cleanupFiles();
         return res.status(400).json({ message: 'First name is required.' });
       }
       if (!lName && !finalFullName) {
-        if (req.file) fs.unlink(req.file.path, () => {});
+        cleanupFiles();
         return res.status(400).json({ message: 'Last name is required.' });
       }
       if (!userSex) {
-        if (req.file) fs.unlink(req.file.path, () => {});
+        cleanupFiles();
         return res.status(400).json({ message: 'Sex is required.' });
       }
       if (!userContact) {
-        if (req.file) fs.unlink(req.file.path, () => {});
+        cleanupFiles();
         return res.status(400).json({ message: 'Contact number is required.' });
       }
       if (!normalizedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
-        if (req.file) fs.unlink(req.file.path, () => {});
+        cleanupFiles();
         return res.status(400).json({ message: 'Enter a valid email address.' });
       }
       if (!empId) {
-        if (req.file) fs.unlink(req.file.path, () => {});
+        cleanupFiles();
         return res.status(400).json({ message: 'Employee ID is required.' });
       }
       if (!dept) {
-        if (req.file) fs.unlink(req.file.path, () => {});
+        cleanupFiles();
         return res.status(400).json({ message: 'Department is required.' });
       }
       if (!pwd || pwd.length < 8) {
-        if (req.file) fs.unlink(req.file.path, () => {});
+        cleanupFiles();
         return res.status(400).json({ message: 'Password must be at least 8 characters.' });
       }
+      if (!idPhotoFile) {
+        cleanupFiles();
+        return res.status(400).json({ message: 'Valid ID photo is required.' });
+      }
+      if (!selfiePhotoFile) {
+        cleanupFiles();
+        return res.status(400).json({ message: 'Selfie holding your valid ID is required.' });
+      }
 
-      const idDocumentUrl = req.file ? `/uploads/admin-ids/${req.file.filename}` : null;
+      const idDocumentUrl = `/uploads/admin-ids/${idPhotoFile.filename}`;
+      const selfieIdUrl = `/uploads/admin-ids/${selfiePhotoFile.filename}`;
 
       // Check if approved admin exists with this email or employeeId
       const { rows: existingAdmins } = await pool.query(
@@ -263,7 +288,7 @@ router.post('/request-access', (req, res) => {
         [normalizedEmail, empId]
       );
       if (existingAdmins.length > 0) {
-        if (req.file) fs.unlink(req.file.path, () => {});
+        cleanupFiles();
         return res.status(409).json({ message: 'An administrator account already exists for this email or Employee ID.' });
       }
 
@@ -277,7 +302,7 @@ router.post('/request-access', (req, res) => {
       if (existingRequests.length > 0) {
         const existingReq = existingRequests[0];
         if (existingReq.email_verified) {
-          if (req.file) fs.unlink(req.file.path, () => {});
+          cleanupFiles();
           return res.status(409).json({
             message: 'An access request for this email/Employee ID has already been verified and is awaiting Institutional Board review.',
           });
@@ -291,8 +316,9 @@ router.post('/request-access', (req, res) => {
                sex = $5, contact_no = $6, email = $7, department = $8, employee_id = $9,
                password_hash = $10,
                id_document_url = COALESCE($11, id_document_url),
+               selfie_id_url = COALESCE($12, selfie_id_url),
                requested_at = now()
-           WHERE id = $12`,
+           WHERE id = $13`,
           [
             fName,
             mName,
@@ -305,6 +331,7 @@ router.post('/request-access', (req, res) => {
             empId,
             hashPassword(pwd),
             idDocumentUrl,
+            selfieIdUrl,
             requestId,
           ]
         );
@@ -313,8 +340,8 @@ router.post('/request-access', (req, res) => {
         await pool.query(
           `INSERT INTO access_requests
              (id, first_name, middle_name, last_name, full_name, sex, contact_no, email, department,
-              employee_id, password_hash, id_document_url, status, email_verified)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'pending',false)`,
+              employee_id, password_hash, id_document_url, selfie_id_url, status, email_verified)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'pending',false)`,
           [
             requestId,
             fName,
@@ -328,13 +355,14 @@ router.post('/request-access', (req, res) => {
             empId,
             hashPassword(pwd),
             idDocumentUrl,
+            selfieIdUrl,
           ]
         );
       }
 
       const mailTransport = createMailTransport();
       if (!mailTransport) {
-        if (req.file) fs.unlink(req.file.path, () => {});
+        cleanupFiles();
         return res.status(503).json({
           message:
             'Gmail sending is not yet configured. Please add your real Gmail address and 16-character Google App Password to backend/.env so the code can be delivered to your Gmail app.',
@@ -354,7 +382,7 @@ router.post('/request-access', (req, res) => {
       });
     } catch (err) {
       console.error('Request access error:', err);
-      if (req.file) fs.unlink(req.file.path, () => {});
+      cleanupFiles();
       return res.status(500).json({ message: 'Unable to submit request: ' + (err.message || 'Server error') });
     }
   });
@@ -583,7 +611,7 @@ router.post('/forgot-password', (req, res) => {
 router.get('/me', requireAuth, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      'SELECT id, institutional_id, first_name, middle_name, last_name, full_name, sex, contact_no, email, department, role, photo_url, id_document_url FROM admins WHERE id = $1',
+      'SELECT id, institutional_id, first_name, middle_name, last_name, full_name, sex, contact_no, email, department, role, photo_url, id_document_url, selfie_id_url FROM admins WHERE id = $1',
       [req.admin.id]
     );
     if (rows.length === 0) return res.status(404).json({ message: 'Admin not found.' });
@@ -603,6 +631,7 @@ router.get('/me', requireAuth, async (req, res) => {
       role: a.role,
       photoUrl: a.photo_url,
       idDocumentUrl: a.id_document_url,
+      selfieIdUrl: a.selfie_id_url,
     });
   } catch (err) {
     console.error(err);
@@ -692,7 +721,7 @@ router.post('/change-password', requireAuth, async (req, res) => {
 router.get('/access-requests', requireAuth, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, first_name, middle_name, last_name, full_name, sex, contact_no, email, department, employee_id, id_document_url, requested_at
+      `SELECT id, first_name, middle_name, last_name, full_name, sex, contact_no, email, department, employee_id, id_document_url, selfie_id_url, requested_at
        FROM access_requests WHERE status = 'pending' AND (email_verified = true OR email_verified IS NULL) ORDER BY requested_at ASC`
     );
     res.json(
@@ -708,6 +737,7 @@ router.get('/access-requests', requireAuth, async (req, res) => {
         department: r.department,
         employeeId: r.employee_id,
         idDocumentUrl: r.id_document_url,
+        selfieIdUrl: r.selfie_id_url,
         requestedAt: r.requested_at,
       }))
     );
@@ -748,8 +778,8 @@ router.post('/access-requests/:id/approve', requireAuth, async (req, res) => {
 
     const newAdminId = `adm-${uuidv4().slice(0, 8)}`;
     await client.query(
-      `INSERT INTO admins (id, institutional_id, first_name, middle_name, last_name, full_name, sex, contact_no, email, department, password_hash, status, role, photo_url, id_document_url)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'approved','Administrator',$12,$13)`,
+      `INSERT INTO admins (id, institutional_id, first_name, middle_name, last_name, full_name, sex, contact_no, email, department, password_hash, status, role, photo_url, id_document_url, selfie_id_url)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'approved','Administrator',$12,$13,$14)`,
       [
         newAdminId,
         request.employee_id,
@@ -762,8 +792,9 @@ router.post('/access-requests/:id/approve', requireAuth, async (req, res) => {
         request.email,
         request.department,
         request.password_hash,
+        request.selfie_id_url || request.id_document_url || null,
         request.id_document_url || null,
-        request.id_document_url || null,
+        request.selfie_id_url || null,
       ]
     );
 

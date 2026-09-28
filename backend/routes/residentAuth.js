@@ -38,6 +38,10 @@ function makeUpload(dir, prefix) {
 
 const idUpload = makeUpload(ID_DIR, 'id');
 const photoUpload = makeUpload(PHOTO_DIR, 'resident');
+const residentRegistrationUpload = idUpload.fields([
+  { name: 'idDocument', maxCount: 1 },
+  { name: 'selfieWithId', maxCount: 1 },
+]);
 
 function createMailTransport() {
   const { SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASS, SMTP_SERVICE } = process.env;
@@ -107,6 +111,7 @@ function toResidentAccount(r) {
     status: r.status,
     photoUrl: r.photo_url,
     idDocumentUrl: r.id_document_url,
+    selfieIdUrl: r.selfie_id_url,
     communityPoints: r.community_points,
     tier: r.tier,
     pushNotifications: r.push_notifications,
@@ -123,10 +128,18 @@ router.post('/register', (req, res) => {
     return res.status(503).json({ message: 'Email verification is not configured. Contact the system administrator.' });
   }
 
-  idUpload.single('idDocument')(req, res, async (uploadErr) => {
+  residentRegistrationUpload(req, res, async (uploadErr) => {
     if (uploadErr) {
-      return res.status(400).json({ message: uploadErr.message || 'Unable to upload ID document.' });
+      return res.status(400).json({ message: uploadErr.message || 'Unable to upload identification files.' });
     }
+
+    const cleanupFiles = () => {
+      if (req.files) {
+        Object.values(req.files).flat().forEach((f) => {
+          if (f?.path) fs.unlink(f.path, () => {});
+        });
+      }
+    };
 
     try {
       const {
@@ -134,21 +147,37 @@ router.post('/register', (req, res) => {
       } = req.body;
 
       if (!firstName || !lastName || !email || !password) {
+        cleanupFiles();
         return res.status(400).json({ message: 'First name, last name, email, and password are required.' });
       }
 
       const normalizedEmail = String(email).trim().toLowerCase();
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
-        if (req.file) fs.unlink(req.file.path, () => {});
+        cleanupFiles();
         return res.status(400).json({ message: 'Enter a valid email address.' });
       }
+
+      const idDocFile = req.files?.['idDocument']?.[0];
+      const selfieFile = req.files?.['selfieWithId']?.[0];
+
+      if (!idDocFile) {
+        cleanupFiles();
+        return res.status(400).json({ message: 'Valid ID document is required.' });
+      }
+      if (!selfieFile) {
+        cleanupFiles();
+        return res.status(400).json({ message: 'Selfie holding your valid ID is required.' });
+      }
+
+      const idDocumentUrl = `/uploads/resident-ids/${idDocFile.filename}`;
+      const selfieIdUrl = `/uploads/resident-ids/${selfieFile.filename}`;
 
       const { rows: existing } = await pool.query(
         'SELECT id, full_name, email, email_verified, email_verification_sent_at, self_registered FROM residents WHERE LOWER(email) = $1 AND password_hash IS NOT NULL',
         [normalizedEmail]
       );
       if (existing.length > 0) {
-        if (req.file) fs.unlink(req.file.path, () => {});
+        cleanupFiles();
         const resident = existing[0];
         if (!resident.email_verified && resident.self_registered) {
           const lastSent = resident.email_verification_sent_at && new Date(resident.email_verification_sent_at).getTime();
@@ -168,26 +197,31 @@ router.post('/register', (req, res) => {
       const fullName = [firstName, middleName, lastName].filter(Boolean).join(' ');
       const age = birthDate ? Math.max(0, new Date().getFullYear() - new Date(birthDate).getFullYear()) : null;
       const id = `res-${uuidv4().slice(0, 8)}`;
-      const idDocumentUrl = req.file ? `/uploads/resident-ids/${req.file.filename}` : null;
 
       const { rows } = await pool.query(
         `INSERT INTO residents
           (id, full_name, birth_date, age, gender, address, zone, contact, email, status,
-           category, password_hash, id_document_url, self_registered, email_verified)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'Pending',$10,$11,$12,true,false)
+           category, password_hash, id_document_url, selfie_id_url, photo_url, self_registered, email_verified)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'Pending',$10,$11,$12,$13,$14,true,false)
          RETURNING *`,
         [
           id, fullName, birthDate || null, age, gender || 'Unspecified', zone || '', zone || '',
           contact || '', email, JSON.stringify(['Resident']), hashPassword(password), idDocumentUrl,
+          selfieIdUrl, selfieIdUrl,
         ]
       );
 
       try {
         await sendVerificationCode({ id, email: normalizedEmail, fullName }, mailTransport);
       } catch (mailErr) {
-        await pool.query('DELETE FROM residents WHERE id = $1 AND email_verified = false', [id]);
-        if (req.file) fs.unlink(req.file.path, () => {});
-        throw mailErr;
+        console.error('[registration] Error sending verification email:', mailErr);
+        try {
+          await pool.query('DELETE FROM residents WHERE id = $1 AND email_verified = false', [id]);
+        } catch (_) {}
+        cleanupFiles();
+        return res.status(502).json({
+          message: 'Unable to deliver verification email: ' + (mailErr.message || 'SMTP error') + '. Please check your email address or try again.',
+        });
       }
 
       res.status(201).json({
@@ -196,8 +230,9 @@ router.post('/register', (req, res) => {
         message: 'A six-digit verification code has been sent to your email.',
       });
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: 'Database error during registration.' });
+      console.error('[registration] Registration error:', err);
+      cleanupFiles();
+      res.status(500).json({ message: 'Registration failed: ' + (err.message || 'Server error') });
     }
   });
 });

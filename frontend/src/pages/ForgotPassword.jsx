@@ -24,7 +24,8 @@ export default function ForgotPassword() {
         SMART PROFILING AND COMPLAINT MANAGEMENT SYSTEM FOR BARANGAY POBLACION
       </div>
       <div className="flex-1 flex items-center justify-center p-6">
-        <div className="bg-white rounded-2xl shadow-sm p-8 w-full max-w-sm">
+        <div className="bg-white rounded-2xl shadow-sm p-8 w-full max-w-sm text-center">
+          <img src="/barangay-seal.png" alt="Barangay Poblacion seal" className="h-16 w-16 mx-auto mb-3 object-contain drop-shadow-sm" />
           <h1 className="text-xl font-bold text-slate-900">Recover Access</h1>
           <p className="text-sm text-slate-500 mt-1 mb-6">
             Enter your institutional email address to receive a secure reset link.

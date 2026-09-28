@@ -23,6 +23,11 @@ async function run() {
   console.log('Ensuring admins.photo_url column exists...');
   await pool.query('ALTER TABLE admins ADD COLUMN IF NOT EXISTS photo_url TEXT');
 
+  console.log('Ensuring selfie_id_url columns exist...');
+  await pool.query('ALTER TABLE access_requests ADD COLUMN IF NOT EXISTS selfie_id_url TEXT');
+  await pool.query('ALTER TABLE admins ADD COLUMN IF NOT EXISTS selfie_id_url TEXT');
+  await pool.query('ALTER TABLE residents ADD COLUMN IF NOT EXISTS selfie_id_url TEXT');
+
   console.log('Ensuring access request email-verification columns exist...');
   await pool.query(`
     ALTER TABLE access_requests
@@ -112,6 +117,66 @@ async function run() {
   await pool.query(`ALTER TABLE announcements ALTER COLUMN id DROP DEFAULT`);
   await pool.query(`ALTER TABLE announcements ALTER COLUMN id TYPE TEXT USING id::text`);
   await pool.query(`ALTER TABLE announcements ADD COLUMN IF NOT EXISTS image_url TEXT`);
+
+  console.log('Ensuring meeting detailed minutes columns exist...');
+  await pool.query(`
+    ALTER TABLE meetings
+      ADD COLUMN IF NOT EXISTS absentees JSONB NOT NULL DEFAULT '[]',
+      ADD COLUMN IF NOT EXISTS main_topics JSONB NOT NULL DEFAULT '[]',
+      ADD COLUMN IF NOT EXISTS concerns_raised TEXT DEFAULT '',
+      ADD COLUMN IF NOT EXISTS action_items JSONB NOT NULL DEFAULT '[]',
+      ADD COLUMN IF NOT EXISTS next_meeting_date TEXT DEFAULT '',
+      ADD COLUMN IF NOT EXISTS next_meeting_time TEXT DEFAULT '',
+      ADD COLUMN IF NOT EXISTS next_meeting_venue TEXT DEFAULT ''
+  `);
+
+  console.log('Ensuring meeting mediation and notification columns exist...');
+  await pool.query(`
+    ALTER TABLE meetings
+      ADD COLUMN IF NOT EXISTS meeting_type TEXT NOT NULL DEFAULT 'council',
+      ADD COLUMN IF NOT EXISTS case_id TEXT,
+      ADD COLUMN IF NOT EXISTS resident_id TEXT,
+      ADD COLUMN IF NOT EXISTS resident_name TEXT DEFAULT '',
+      ADD COLUMN IF NOT EXISTS resident_email TEXT DEFAULT '',
+      ADD COLUMN IF NOT EXISTS respondent_name TEXT DEFAULT '',
+      ADD COLUMN IF NOT EXISTS mediator TEXT DEFAULT '',
+      ADD COLUMN IF NOT EXISTS hearing_stage TEXT DEFAULT '1st Mediation Hearing',
+      ADD COLUMN IF NOT EXISTS notification_sent BOOLEAN NOT NULL DEFAULT false,
+      ADD COLUMN IF NOT EXISTS notification_sent_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS next_notification_sent BOOLEAN NOT NULL DEFAULT false,
+      ADD COLUMN IF NOT EXISTS next_notification_sent_at TIMESTAMPTZ
+  `);
+
+  console.log('Ensuring complaint mediation schedule columns exist...');
+  await pool.query(`
+    ALTER TABLE complaints
+      ADD COLUMN IF NOT EXISTS mediation_date DATE,
+      ADD COLUMN IF NOT EXISTS mediation_time TEXT,
+      ADD COLUMN IF NOT EXISTS mediation_venue TEXT,
+      ADD COLUMN IF NOT EXISTS mediator TEXT,
+      ADD COLUMN IF NOT EXISTS hearing_stage TEXT,
+      ADD COLUMN IF NOT EXISTS next_mediation_date TEXT DEFAULT '',
+      ADD COLUMN IF NOT EXISTS next_mediation_time TEXT DEFAULT '',
+      ADD COLUMN IF NOT EXISTS next_mediation_venue TEXT DEFAULT ''
+  `);
+
+  console.log('Ensuring resident notifications table exists...');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS notifications (
+      id TEXT PRIMARY KEY,
+      resident_id TEXT,
+      resident_email TEXT,
+      case_id TEXT,
+      title TEXT NOT NULL,
+      message TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'mediation',
+      link TEXT,
+      read BOOLEAN NOT NULL DEFAULT false,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_notifications_resident ON notifications(resident_id);
+    CREATE INDEX IF NOT EXISTS idx_notifications_email ON notifications(resident_email);
+  `);
 
   const { rows: adminCountRows } = await pool.query('SELECT COUNT(*) FROM admins');
   if (Number(adminCountRows[0].count) === 0) {
@@ -242,6 +307,42 @@ async function run() {
       ]
     );
   }
+
+  // Backfill detailed meeting minutes on mtg-001 so all 7 required sections are populated
+  await pool.query(`
+    UPDATE meetings
+    SET
+      location = CASE WHEN location IS NULL OR location = '' OR location = 'Barangay Hall' THEN 'Barangay Poblacion Session Hall' ELSE location END,
+      attendees = CASE WHEN jsonb_array_length(attendees) <= 3 THEN $1::jsonb ELSE attendees END,
+      absentees = CASE WHEN jsonb_array_length(absentees) = 0 THEN $2::jsonb ELSE absentees END,
+      main_topics = CASE WHEN jsonb_array_length(main_topics) = 0 THEN $3::jsonb ELSE main_topics END,
+      concerns_raised = CASE WHEN concerns_raised IS NULL OR concerns_raised = '' THEN $4 ELSE concerns_raised END,
+      minutes = CASE WHEN minutes IS NULL OR minutes = '' OR minutes = 'Meeting proceeded as scheduled with quorum present.' THEN $5 ELSE minutes END,
+      action_items = CASE WHEN jsonb_array_length(action_items) = 0 THEN $6::jsonb ELSE action_items END,
+      next_meeting_date = CASE WHEN next_meeting_date IS NULL OR next_meeting_date = '' THEN $7 ELSE next_meeting_date END,
+      next_meeting_time = CASE WHEN next_meeting_time IS NULL OR next_meeting_time = '' THEN $8 ELSE next_meeting_time END,
+      next_meeting_venue = CASE WHEN next_meeting_venue IS NULL OR next_meeting_venue = '' THEN $9 ELSE next_meeting_venue END
+    WHERE id = 'mtg-001'
+  `, [
+    JSON.stringify(['Hon. Roberto Cruz (Barangay Captain)', 'Kgd. Liza Lopez (Admin & Finance)', 'Kgd. Carmelita Tan (Health & Sanitation)', 'Sec. Juan Santos (Peace & Order)', 'Kgd. Ricardo Delgado (Infrastructure)']),
+    JSON.stringify(['Kgd. Elena Santos (Excused - Medical Leave)', 'SK Chairman Mark Rivera (Excused - Academic Commitment)']),
+    JSON.stringify([
+      'Allocation and procurement for additional street lighting on Purok 5 corridor',
+      'Mandatory curfew reinforcement for minors and night tanod patrol logistics',
+      'Front desk triage and digital queuing kiosk upgrades for the Barangay Hall',
+      'Review of schedule and logistics for upcoming quarterly community clean-up drive',
+    ]),
+    'Purok 5 residents reported frequent outages on dark street corners posing safety concerns for evening commuters. The youth council also requested clearer guidelines on curfew enforcement so students returning from evening study sessions or night classes are not penalized.',
+    'The regular monthly session of the Barangay Poblacion Council was called to order at 2:00 PM by Hon. Roberto Cruz with quorum established. The council reviewed ongoing community infrastructure projects, evaluated the peace and order quarterly report, and deliberated on public safety improvements for residential zones.',
+    JSON.stringify([
+      { id: 'ACT-001', task: 'Canvass and procure 12 LED solar streetlights for Purok 5', responsible: 'Kgd. Ricardo Delgado (Infrastructure)', deadline: '2024-11-15', status: 'In Progress' },
+      { id: 'ACT-002', task: 'Coordinate joint patrol schedule with PNP precinct and Barangay Tanods', responsible: 'Sec. Juan Santos (Peace & Order)', deadline: '2024-10-31', status: 'Completed' },
+      { id: 'ACT-003', task: 'Draft technical specifications for front desk digital queuing kiosk', responsible: 'Kgd. Liza Lopez (Admin & Finance)', deadline: '2024-11-10', status: 'Pending' },
+    ]),
+    '2024-11-28',
+    '02:00 PM - 05:00 PM',
+    'Barangay Poblacion Session Hall',
+  ]);
 
   const { rows: escalationCountRows } = await pool.query('SELECT COUNT(*) FROM escalations');
   if (Number(escalationCountRows[0].count) === 0) {

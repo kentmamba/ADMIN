@@ -131,6 +131,60 @@ export default function ResidentProfile() {
               <p className="font-medium text-slate-800">{resident.contact || '-'}</p>
             </div>
           </div>
+
+          {(resident.idDocumentUrl || resident.selfieIdUrl) && (
+            <div className="mt-6 pt-6 border-t border-slate-100">
+              <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
+                Identity Verification Documents
+              </h3>
+              <div className="grid sm:grid-cols-2 gap-4">
+                {resident.idDocumentUrl && (
+                  <div className="border border-slate-200 rounded-xl p-3 bg-slate-50">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-semibold text-slate-700">🪪 Valid ID Document</span>
+                      <a
+                        href={resident.idDocumentUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[11px] text-blue-600 hover:underline"
+                      >
+                        ↗ Open full
+                      </a>
+                    </div>
+                    <div className="h-40 w-full flex items-center justify-center bg-white rounded-lg border border-slate-200 p-1.5 overflow-hidden">
+                      <img
+                        src={resident.idDocumentUrl}
+                        alt="Valid ID"
+                        className="h-full w-auto object-contain rounded"
+                      />
+                    </div>
+                  </div>
+                )}
+                {resident.selfieIdUrl && (
+                  <div className="border border-slate-200 rounded-xl p-3 bg-slate-50">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-semibold text-slate-700">🤳 Selfie Holding Valid ID</span>
+                      <a
+                        href={resident.selfieIdUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[11px] text-purple-700 hover:underline"
+                      >
+                        ↗ Open full
+                      </a>
+                    </div>
+                    <div className="h-40 w-full flex items-center justify-center bg-white rounded-lg border border-slate-200 p-1.5 overflow-hidden">
+                      <img
+                        src={resident.selfieIdUrl}
+                        alt="Selfie Holding ID"
+                        className="h-full w-auto object-contain rounded"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="space-y-6">

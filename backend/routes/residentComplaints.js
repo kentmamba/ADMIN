@@ -74,10 +74,15 @@ async function scanWithSightengine(file) {
   }
 }
 
-function toComplaint(c) {
+function toComplaint(c, currentResidentId) {
+  const isFiledByMe = c.filed_by_resident_id && c.filed_by_resident_id === currentResidentId;
+  const isAgainstMe = !isFiledByMe;
+
   return {
     id: c.id,
-    resident: c.resident,
+    // Complainant identity is strictly masked if the resident is the respondent!
+    resident: isAgainstMe ? 'Confidential Complainant' : c.resident,
+    complainantName: isAgainstMe ? 'Confidential Complainant' : c.resident,
     category: c.category,
     status: c.status,
     filingDate: c.filing_date,
@@ -88,13 +93,24 @@ function toComplaint(c) {
     aiScanCheckedAt: c.ai_scan_checked_at,
     respondent: c.respondent,
     respondentAddress: c.respondent_address,
-    complainantAddress: c.complainant_address,
+    complainantAddress: isAgainstMe ? null : c.complainant_address,
     narrative: c.narrative,
     reliefSought: c.relief_sought,
-    attachmentUrl: c.attachment_url,
+    attachmentUrl: isAgainstMe ? null : c.attachment_url,
     submittedAt: c.created_at,
     underReviewAt: c.under_review_at,
     resolvedAt: c.resolved_at,
+    mediationDate: c.mediation_date,
+    mediationTime: c.mediation_time,
+    mediationVenue: c.mediation_venue,
+    mediator: c.mediator,
+    hearingStage: c.hearing_stage,
+    nextMediationDate: c.next_mediation_date || '',
+    nextMediationTime: c.next_mediation_time || '',
+    nextMediationVenue: c.next_mediation_venue || '',
+    isFiledByMe,
+    isAgainstMe,
+    role: isAgainstMe ? 'respondent' : 'complainant',
   };
 }
 
@@ -159,11 +175,27 @@ router.post('/', (req, res) => {
 // GET /api/resident/complaints  (Portal Activity / Recent History for the logged-in resident)
 router.get('/', async (req, res) => {
   try {
+    const residentId = req.resident.id;
+    const { rows: rRows } = await pool.query('SELECT id, full_name, email FROM residents WHERE id = $1', [residentId]);
+    const resident = rRows[0] || {};
+    const fullName = (resident.full_name || req.resident.fullName || '').trim();
+    const firstName = fullName.split(/\s+/)[0] || '';
+
     const { rows } = await pool.query(
-      'SELECT * FROM complaints WHERE filed_by_resident_id = $1 ORDER BY created_at DESC',
-      [req.resident.id]
+      `SELECT * FROM complaints
+       WHERE filed_by_resident_id = $1
+          OR (
+            respondent IS NOT NULL AND TRIM(respondent) <> '' AND (
+              LOWER(TRIM(respondent)) = LOWER(TRIM($2))
+              OR (LENGTH($3) >= 3 AND LOWER(TRIM(respondent)) = LOWER(TRIM($3)))
+              OR (LENGTH(TRIM(respondent)) >= 3 AND LOWER(TRIM($2)) LIKE '%' || LOWER(TRIM(respondent)) || '%')
+              OR respondent = $1
+            )
+          )
+       ORDER BY created_at DESC`,
+      [residentId, fullName, firstName]
     );
-    res.json(rows.map(toComplaint));
+    res.json(rows.map((c) => toComplaint(c, residentId)));
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Database error loading complaints.' });
@@ -200,18 +232,174 @@ router.get('/escalations', async (req, res) => {
   }
 });
 
+// GET /api/resident/complaints/mediations
+// Returns scheduled mediation hearings for complaints filed by or involving the logged-in resident
+router.get('/mediations', async (req, res) => {
+  try {
+    const residentId = req.resident.id;
+    const { rows: rRows } = await pool.query('SELECT id, full_name, email FROM residents WHERE id = $1', [residentId]);
+    const resident = rRows[0] || {};
+    const residentEmail = resident.email || req.resident.email || '';
+    const residentName = (resident.full_name || req.resident.fullName || '').trim();
+    const firstName = residentName.split(/\s+/)[0] || '';
+
+    const { rows } = await pool.query(
+      `SELECT m.id, m.title, m.date, m.time, m.location, m.case_id,
+              m.mediator, m.hearing_stage, m.concerns_raised, m.created_at,
+              m.next_meeting_date, m.next_meeting_time, m.next_meeting_venue,
+              c.category, c.filed_by_resident_id,
+              COALESCE(c.resident, m.resident_name) AS complainant_name,
+              COALESCE(c.respondent, m.respondent_name) AS respondent,
+              COALESCE(c.status, 'Mediation') AS case_status
+       FROM meetings m
+       LEFT JOIN complaints c ON c.id = m.case_id
+       WHERE m.meeting_type = 'mediation'
+         AND (
+           c.filed_by_resident_id = $1
+           OR m.resident_id = $1
+           OR (m.resident_email IS NOT NULL AND m.resident_email <> '' AND LOWER(m.resident_email) = LOWER($2))
+           OR (c.resident IS NOT NULL AND LOWER(TRIM(c.resident)) = LOWER(TRIM($3)))
+           OR (m.resident_name IS NOT NULL AND LOWER(TRIM(m.resident_name)) = LOWER(TRIM($3)))
+           OR (
+             c.respondent IS NOT NULL AND TRIM(c.respondent) <> '' AND (
+               LOWER(TRIM(c.respondent)) = LOWER(TRIM($3))
+               OR (LENGTH($4) >= 3 AND LOWER(TRIM(c.respondent)) = LOWER(TRIM($4)))
+               OR (LENGTH(TRIM(c.respondent)) >= 3 AND LOWER(TRIM($3)) LIKE '%' || LOWER(TRIM(c.respondent)) || '%')
+             )
+           )
+           OR (
+             m.respondent_name IS NOT NULL AND TRIM(m.respondent_name) <> '' AND (
+               LOWER(TRIM(m.respondent_name)) = LOWER(TRIM($3))
+               OR (LENGTH($4) >= 3 AND LOWER(TRIM(m.respondent_name)) = LOWER(TRIM($4)))
+               OR (LENGTH(TRIM(m.respondent_name)) >= 3 AND LOWER(TRIM($3)) LIKE '%' || LOWER(TRIM(m.respondent_name)) || '%')
+             )
+           )
+         )
+       ORDER BY m.date ASC, m.time ASC`,
+      [residentId, residentEmail, residentName, firstName]
+    );
+
+    res.json(rows.map((m) => {
+      const isFiledByMe = m.filed_by_resident_id && m.filed_by_resident_id === residentId;
+      const isAgainstMe = !isFiledByMe;
+      return {
+        id: m.id,
+        title: m.title,
+        date: m.date,
+        time: m.time,
+        location: m.location,
+        caseId: m.case_id,
+        mediator: m.mediator,
+        hearingStage: m.hearing_stage,
+        notes: m.concerns_raised,
+        category: m.category,
+        complainantName: isAgainstMe ? 'Confidential Complainant' : m.complainant_name,
+        respondent: m.respondent,
+        caseStatus: m.case_status,
+        nextMeetingDate: m.next_meeting_date || '',
+        nextMeetingTime: m.next_meeting_time || '',
+        nextMeetingVenue: m.next_meeting_venue || '',
+        createdAt: m.created_at,
+        isAgainstMe,
+      };
+    }));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Database error loading mediation schedules.' });
+  }
+});
+
+// GET /api/resident/complaints/notifications
+// Returns in-app notifications for the logged-in resident
+router.get('/notifications', async (req, res) => {
+  try {
+    const residentEmail = req.resident.email || '';
+    const { rows } = await pool.query(
+      `SELECT id, resident_id, resident_email, case_id, title, message, type, link, read, created_at
+       FROM notifications
+       WHERE resident_id = $1
+          OR (resident_email IS NOT NULL AND resident_email <> '' AND LOWER(resident_email) = LOWER($2))
+       ORDER BY created_at DESC
+       LIMIT 50`,
+      [req.resident.id, residentEmail]
+    );
+
+    res.json(rows.map((n) => ({
+      id: n.id,
+      residentId: n.resident_id,
+      residentEmail: n.resident_email,
+      caseId: n.case_id,
+      title: n.title,
+      message: n.message,
+      type: n.type,
+      link: n.link,
+      read: !!n.read,
+      createdAt: n.created_at,
+    })));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Database error loading notifications.' });
+  }
+});
+
+// POST /api/resident/complaints/notifications/mark-read
+// Marks specific or all notifications as read
+router.post('/notifications/mark-read', async (req, res) => {
+  try {
+    const { id } = req.body || {};
+    const residentEmail = req.resident.email || '';
+    if (id) {
+      await pool.query(
+        `UPDATE notifications SET read = true
+         WHERE id = $1
+           AND (resident_id = $2 OR (resident_email IS NOT NULL AND LOWER(resident_email) = LOWER($3)))`,
+        [id, req.resident.id, residentEmail]
+      );
+    } else {
+      await pool.query(
+        `UPDATE notifications SET read = true
+         WHERE resident_id = $1
+            OR (resident_email IS NOT NULL AND resident_email <> '' AND LOWER(resident_email) = LOWER($2))`,
+        [req.resident.id, residentEmail]
+      );
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Database error marking notifications read.' });
+  }
+});
+
 // GET /api/resident/complaints/:id  (Track Your Request - lookup by reference ID)
-// Scoped to the logged-in resident's own complaints for privacy.
+// Scoped to the logged-in resident's own complaints or complaints where they are named respondent
 router.get('/:id', async (req, res) => {
   try {
+    const residentId = req.resident.id;
+    const { rows: rRows } = await pool.query('SELECT id, full_name, email FROM residents WHERE id = $1', [residentId]);
+    const resident = rRows[0] || {};
+    const fullName = (resident.full_name || req.resident.fullName || '').trim();
+    const firstName = fullName.split(/\s+/)[0] || '';
+
     const { rows } = await pool.query(
-      'SELECT * FROM complaints WHERE id = $1 AND filed_by_resident_id = $2',
-      [req.params.id, req.resident.id]
+      `SELECT * FROM complaints
+       WHERE id = $1
+         AND (
+           filed_by_resident_id = $2
+           OR (
+             respondent IS NOT NULL AND TRIM(respondent) <> '' AND (
+               LOWER(TRIM(respondent)) = LOWER(TRIM($3))
+               OR (LENGTH($4) >= 3 AND LOWER(TRIM(respondent)) = LOWER(TRIM($4)))
+               OR (LENGTH(TRIM(respondent)) >= 3 AND LOWER(TRIM($3)) LIKE '%' || LOWER(TRIM(respondent)) || '%')
+               OR respondent = $2
+             )
+           )
+         )`,
+      [req.params.id, residentId, fullName, firstName]
     );
     if (rows.length === 0) {
       return res.status(404).json({ message: 'No request found with that reference ID on your account.' });
     }
-    res.json(toComplaint(rows[0]));
+    res.json(toComplaint(rows[0], residentId));
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Database error loading request.' });

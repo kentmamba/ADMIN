@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS admins (
   role              TEXT NOT NULL DEFAULT 'Administrator',
   photo_url         TEXT,
   id_document_url   TEXT,
+  selfie_id_url     TEXT,
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -33,6 +34,7 @@ CREATE TABLE IF NOT EXISTS access_requests (
   employee_id       TEXT NOT NULL,
   password_hash     TEXT NOT NULL,
   id_document_url   TEXT,
+  selfie_id_url     TEXT,
   status            TEXT NOT NULL DEFAULT 'pending',
   email_verified    BOOLEAN NOT NULL DEFAULT false,
   verification_token_hash TEXT,
@@ -68,6 +70,7 @@ CREATE TABLE IF NOT EXISTS residents (
   password_hash         TEXT,
   civil_status           TEXT,
   id_document_url       TEXT,
+  selfie_id_url         TEXT,
   community_points      INT NOT NULL DEFAULT 0,
   tier                  TEXT NOT NULL DEFAULT 'Member',
   push_notifications    BOOLEAN NOT NULL DEFAULT true,
@@ -104,6 +107,14 @@ CREATE TABLE IF NOT EXISTS complaints (
   filed_by_resident_id  TEXT REFERENCES residents(id) ON DELETE SET NULL,
   under_review_at       TIMESTAMPTZ,
   resolved_at           TIMESTAMPTZ,
+  mediation_date        DATE,
+  mediation_time        TEXT,
+  mediation_venue       TEXT,
+  mediator              TEXT,
+  hearing_stage         TEXT,
+  next_mediation_date   TEXT DEFAULT '',
+  next_mediation_time   TEXT DEFAULT '',
+  next_mediation_venue  TEXT DEFAULT '',
   created_at            TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -123,9 +134,41 @@ CREATE TABLE IF NOT EXISTS meetings (
   time              TEXT,
   location          TEXT,
   attendees         JSONB NOT NULL DEFAULT '[]',
+  absentees         JSONB NOT NULL DEFAULT '[]',
   agenda            JSONB NOT NULL DEFAULT '[]',
+  main_topics       JSONB NOT NULL DEFAULT '[]',
+  concerns_raised   TEXT DEFAULT '',
   minutes           TEXT DEFAULT '',
   resolutions       JSONB NOT NULL DEFAULT '[]',
+  action_items      JSONB NOT NULL DEFAULT '[]',
+  next_meeting_date TEXT DEFAULT '',
+  next_meeting_time TEXT DEFAULT '',
+  next_meeting_venue TEXT DEFAULT '',
+  meeting_type      TEXT NOT NULL DEFAULT 'council',
+  case_id           TEXT,
+  resident_id       TEXT,
+  resident_name     TEXT DEFAULT '',
+  resident_email    TEXT DEFAULT '',
+  respondent_name   TEXT DEFAULT '',
+  mediator          TEXT DEFAULT '',
+  hearing_stage     TEXT DEFAULT '1st Mediation Hearing',
+  notification_sent BOOLEAN NOT NULL DEFAULT false,
+  notification_sent_at TIMESTAMPTZ,
+  next_notification_sent BOOLEAN NOT NULL DEFAULT false,
+  next_notification_sent_at TIMESTAMPTZ,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS notifications (
+  id                TEXT PRIMARY KEY,
+  resident_id       TEXT,
+  resident_email    TEXT,
+  case_id           TEXT,
+  title             TEXT NOT NULL,
+  message           TEXT NOT NULL,
+  type              TEXT NOT NULL DEFAULT 'mediation',
+  link              TEXT,
+  read              BOOLEAN NOT NULL DEFAULT false,
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

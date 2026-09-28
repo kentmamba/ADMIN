@@ -53,6 +53,8 @@ function toResident(r) {
     spouse: r.spouse,
     household: r.household || [],
     photoUrl: r.photo_url,
+    idDocumentUrl: r.id_document_url,
+    selfieIdUrl: r.selfie_id_url,
   };
 }
 
@@ -106,6 +108,30 @@ router.get('/', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Database error loading residents.' });
+  }
+});
+
+// GET /api/residents/all-directory
+// Returns all registered residents (approved or pending) for mediation matching & email autofill
+router.get('/all-directory', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, full_name, email, contact, address, zone, status
+       FROM residents
+       ORDER BY full_name ASC`
+    );
+    res.json(rows.map((r) => ({
+      id: r.id,
+      fullName: r.full_name,
+      email: r.email || '',
+      contact: r.contact || '',
+      address: r.address || '',
+      zone: r.zone || '',
+      status: r.status,
+    })));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Database error loading resident directory.' });
   }
 });
 

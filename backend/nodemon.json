@@ -1,11 +1,11 @@
 {
-  "watch": [
-    "server.js",
-    "routes",
-    "db",
-    "middleware",
-    "utils",
-    ".env"
+  "restartable": "rs",
+  "ignore": [
+    "node_modules/**",
+    "uploads/**",
+    ".git/**",
+    "*.log"
   ],
-  "ext": "js,json,env"
+  "delay": 500,
+  "ext": "js,json"
 }

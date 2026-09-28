@@ -28,7 +28,7 @@ export default function Login() {
     <div className="admin-auth-scene min-h-screen flex items-center justify-center p-6">
       <div className="admin-login-shell w-full max-w-4xl grid md:grid-cols-2 gap-6">
         <div className="admin-login-welcome flex flex-col items-center justify-center text-center text-white">
-          <img src="/barangay-seal.svg" alt="Barangay Poblacion seal" className="mb-6 h-24 w-24 rounded-full bg-transparent object-contain p-0" />
+          <img src="/barangay-seal.png" alt="Barangay Poblacion seal" className="mb-6 h-28 w-28 rounded-full bg-transparent object-contain p-0 drop-shadow-md" />
           <h1 className="text-lg font-bold leading-snug">
             Welcome to Smart Profiling and Complaint Management System for Barangay Poblacion
           </h1>
@@ -37,9 +37,9 @@ export default function Login() {
         <div className="admin-login-form">
           <div className="flex flex-col items-center mb-6">
             <img
-              src="/barangay-seal.svg"
+              src="/barangay-seal.png"
               alt="Barangay Poblacion seal"
-              className="mb-3 h-14 w-14 rounded-full object-contain"
+              className="mb-3 h-16 w-16 rounded-full object-contain drop-shadow-sm"
             />
             <h2 className="font-bold tracking-wide text-slate-800">INTERNAL ACCESS</h2>
           </div>

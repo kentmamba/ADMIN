@@ -40,7 +40,7 @@ export default function VerifyEmail() {
   return (
     <main className="admin-auth-scene admin-verify-scene min-h-screen flex items-center justify-center p-6">
       <section className="admin-verify-panel w-full max-w-lg rounded-2xl p-8 text-center">
-        <img src="/barangay-seal.svg" alt="Barangay Poblacion seal" className="mx-auto mb-4 h-16 w-16 object-contain" />
+        <img src="/barangay-seal.png" alt="Barangay Poblacion seal" className="mx-auto mb-4 h-20 w-20 object-contain drop-shadow" />
         <h1 className="text-2xl font-bold">Email Verification</h1>
         {checking ? (
           <p className="mt-4">Verifying your email address…</p>
